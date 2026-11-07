@@ -6,7 +6,7 @@
         Title="{l:T Ko='코지 오빗', En='Cozy Orbit'}"
         Width="440" Height="800" MinWidth="400" MinHeight="620" SizeToContent="Manual"
         WindowStartupLocation="CenterScreen">
-  <Grid RowDefinitions="Auto,Auto,Auto,*">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
 
     <!-- 장면 -->
     <Panel Grid.Row="0" Height="276">
@@ -31,21 +31,24 @@
     <Border Grid.Row="1" Classes="panel" BorderThickness="0,2,0,2" Padding="10,8">
       <StackPanel Spacing="8">
         <Grid ColumnDefinitions="*,*,*">
-          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" Background="Transparent"
+                      ToolTip.Tip="{l:T Ko='이번 항해에서 날아온 거리 (별걸음)', En='Distance flown this voyage (star steps)'}">
             <v:PixelIcon Sprite="icon_distance" Scale="2" VerticalAlignment="Center" />
             <StackPanel>
               <TextBlock Classes="dim" Text="{l:T Ko='거리', En='Distance'}" />
               <TextBlock x:Name="DistanceText" />
             </StackPanel>
           </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Background="Transparent"
+                      ToolTip.Tip="{l:T Ko='지금 속도 — 별빛으로 부스트하면 더 빨라져요', En='Current speed — faster while boosting with starlight'}">
             <v:PixelIcon x:Name="SpeedIcon" Sprite="icon_engine" Scale="2" VerticalAlignment="Center" />
             <StackPanel>
               <TextBlock Classes="dim" Text="{l:T Ko='속도', En='Speed'}" />
               <TextBlock x:Name="SpeedText" />
             </StackPanel>
           </StackPanel>
-          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Background="Transparent"
+                      ToolTip.Tip="{l:T Ko='연구에 쓰는 별가루 — 날아가는 동안 모이고 발견·넘친 별빛으로도 생겨요', En='Stardust for research — builds up as you fly and from discoveries and overflowing starlight'}">
             <v:PixelIcon Sprite="icon_stardust" Scale="2" VerticalAlignment="Center" />
             <StackPanel>
               <TextBlock Classes="dim" Text="{l:T Ko='별가루', En='Stardust'}" />
@@ -56,25 +59,33 @@
 
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
           <v:PixelIcon Grid.Column="0" Sprite="icon_starlight" Scale="2" VerticalAlignment="Center" Animate="True" />
-          <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center" Background="Transparent"
+                      ToolTip.Tip="{l:T Ko='별빛 배터리 — 이 컴퓨터에서 쓴 AI 토큰이 별빛이 되어 채워져요. 가득 차면 넘친 별빛은 별가루로', En='Starlight battery — filled by AI tokens used on this PC. When full the overflow becomes stardust'}">
             <ProgressBar x:Name="BatteryBar" Minimum="0" Maximum="1" Height="12" Foreground="{DynamicResource StarlightBrush}" />
             <TextBlock x:Name="BatteryText" Classes="dim" />
           </StackPanel>
           <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center">
-            <Button x:Name="BoostButton" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" MinWidth="104" />
-            <CheckBox x:Name="AutoBoostBox" Content="{l:T Ko='자동 부스트', En='Auto boost'}" />
+            <Button x:Name="BoostButton" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" MinWidth="104"
+                    ToolTip.ShowOnDisabled="True"
+                    ToolTip.Tip="{l:T Ko='별빛을 써서 더 빨리 날아요 (별빛 1초 → 부스트 1초)', En='Spend starlight to fly faster (1 s of starlight → 1 s of boost)'}" />
+            <CheckBox x:Name="AutoBoostBox" Content="{l:T Ko='자동 부스트', En='Auto boost'}"
+                      ToolTip.Tip="{l:T Ko='별빛이 있으면 알아서 부스트해요', En='Boost automatically whenever there is starlight'}" />
           </StackPanel>
         </Grid>
 
-        <StackPanel Spacing="3">
+        <StackPanel Spacing="3" Background="Transparent"
+                    ToolTip.Tip="{l:T Ko='다음 천체를 만날 때까지 남은 거리와 시간', En='Distance and time left until the next discovery'}">
           <TextBlock x:Name="NextText" TextTrimming="CharacterEllipsis" />
           <ProgressBar x:Name="NextBar" Minimum="0" Maximum="1" Height="8" />
         </StackPanel>
       </StackPanel>
     </Border>
 
+    <!-- 첫 실행 안내 (장면은 가리지 않게 상태판 아래에 — 닫으면 줄이 사라진다) -->
+    <v:OnboardingCard x:Name="OnboardingPanel" Grid.Row="2" Margin="8,8,8,0" />
+
     <!-- 탭 (설정은 아이콘만 — 여섯 칸이 영어에서도 들어가게) -->
-    <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*,Auto" Margin="8,8,8,0" ColumnSpacing="3">
+    <Grid Grid.Row="3" ColumnDefinitions="*,*,*,*,*,Auto" Margin="8,8,8,0" ColumnSpacing="3">
       <ToggleButton x:Name="TabResearch" Grid.Column="0" Classes="tab">
         <StackPanel Orientation="Horizontal" Spacing="3">
           <v:PixelIcon Sprite="icon_lab" Scale="1" />
@@ -110,7 +121,7 @@
         <v:PixelIcon Sprite="icon_gear" Scale="1" />
       </ToggleButton>
     </Grid>
-    <Border Grid.Row="3" Classes="panel" Margin="8,0,8,8" Padding="0">
+    <Border Grid.Row="4" Classes="panel" Margin="8,0,8,8" Padding="0">
       <!-- ScrollViewer 의 Padding 은 가로 폭 계산에 빠져 글자가 오른쪽으로 넘친다 → 안쪽 여백은 내용의 Margin 으로 -->
       <ScrollViewer x:Name="TabScroll" HorizontalScrollBarVisibility="Disabled">
         <ContentControl x:Name="TabContent" Margin="8,8,14,8" />

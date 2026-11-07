@@ -13,6 +13,8 @@ public enum SoundId
     Buy,
     /// <summary>새 항해 출발 — 상승 팡파레</summary>
     Voyage,
+    /// <summary>우주 고래 인사 — 낮고 둥근 "뿌우~" 두 번 (위로 살짝 올랐다 내려오는 글라이드)</summary>
+    Whale,
 }
 
 /// <summary>
@@ -60,6 +62,11 @@ public static class SoundSynth
                 buf = new float[Samples(0.6)];
                 Note(buf, 0, 0.06, Midi(83), 0.3, p => Square(p, 0.5), (0.001, 0.04, 0.5, 0.1));
                 Note(buf, 0.07, 0.2, Midi(88), 0.3, p => Square(p, 0.5), (0.001, 0.1, 0.5, 0.25));
+                break;
+            case SoundId.Whale:
+                buf = new float[Samples(1.6)];
+                Glide(buf, 0, 0.6, Midi(53), 5, 2, 0.45);
+                Glide(buf, 0.5, 0.95, Midi(57), 4, 6, 0.5);
                 break;
             default:
                 buf = new float[Samples(2.4)];
@@ -130,6 +137,25 @@ public static class SoundSynth
             double t = i / (double)SampleRate;
             ph += freq * (1 + vibrato * Math.Sin(2 * Math.PI * 5 * t)) / SampleRate;
             buf[i0 + i] += (float)(wave(ph) * vol * Env(t, env.A, env.D, env.S, len, env.R));
+        }
+    }
+
+    /// <summary>
+    /// 낮은 글라이드 한 번: 기준음에서 rise 반음만큼 둥글게 올랐다가 끝엔 fall 반음 아래로 내려앉는다.
+    /// 사인 + 옥타브 위 약한 배음, 느린 떨림, 부드럽게 부풀었다 사라지는 엔벨로프.
+    /// </summary>
+    private static void Glide(float[] buf, double start, double len, double baseFreq, double rise, double fall, double vol)
+    {
+        int i0 = Samples(start), n = Samples(len);
+        double ph = 0;
+        for (int i = 0; i < n && i0 + i < buf.Length; i++)
+        {
+            double u = i / (double)n;
+            double semis = rise * Math.Sin(Math.PI * Math.Min(1, u * 1.4)) - fall * u * u;
+            ph += baseFreq * Math.Pow(2, semis / 12) * (1 + 0.006 * Math.Sin(2 * Math.PI * 4.5 * u * len)) / SampleRate;
+            double wave = Math.Sin(2 * Math.PI * ph) * 0.8 + Math.Sin(4 * Math.PI * ph) * 0.2;
+            double env = Math.Pow(Math.Sin(Math.PI * u), 0.8);
+            buf[i0 + i] += (float)(wave * vol * env);
         }
     }
 

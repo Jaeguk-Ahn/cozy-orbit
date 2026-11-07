@@ -12,6 +12,8 @@ namespace CozyOrbit.App.Views.Pages;
 public sealed class SettingsPage : Page
 {
     private readonly TextBlock _stats = Text("", "dim");
+    /// <summary>프로바이더 id → 체크 옆의 "찾음/없음" 글</summary>
+    private readonly List<(string Id, TextBlock Label)> _found = new();
 
     public SettingsPage(GameHost host) : base(host)
     {
@@ -122,9 +124,14 @@ public sealed class SettingsPage : Page
         var wrap = new WrapPanel();
         foreach (var p in host.Providers)
         {
-            var box = new CheckBox { Content = p.DisplayName, IsChecked = !s.Settings.DisabledProviders.Contains(p.Id), MinWidth = 150 };
+            var box = new CheckBox { Content = p.DisplayName, IsChecked = !s.Settings.DisabledProviders.Contains(p.Id), MinWidth = 120 };
             box.IsCheckedChanged += (_, _) => Host.SetProviderEnabled(p.Id, box.IsChecked == true);
-            wrap.Children.Add(box);
+            var found = Text("", fg: Rendering.SkinArt.Solid(Core.Art.Palette.TextDim));
+            found.VerticalAlignment = VerticalAlignment.Center;
+            _found.Add((p.Id, found));
+            var item = Row(4, box, found);
+            item.MinWidth = 190;
+            wrap.Children.Add(item);
         }
         root.Children.Add(wrap);
 
@@ -135,6 +142,9 @@ public sealed class SettingsPage : Page
         // 기록
         root.Children.Add(Header(L.T("항해 기록", "Voyage log"), "icon_log"));
         root.Children.Add(_stats);
+        var replay = new Button { Content = L.T("안내 다시 보기", "Show the intro again") };
+        replay.Click += (_, _) => Host.ReplayOnboarding();
+        root.Children.Add(replay);
 
         var folder = new Button { Content = L.T("저장 폴더 열기", "Open save folder") };
         folder.Click += async (_, _) =>
@@ -158,11 +168,26 @@ public sealed class SettingsPage : Page
         var s = Host.State;
         var text = L.T(
             $"출발한 날 {s.CreatedAt.ToLocalTime():yyyy-MM-dd} · 항해 시간 {Fmt.Duration(s.Stats.PlaySeconds)}\n" +
-            $"누적 거리 {Fmt.Steps(s.Distance)} · 발견 {s.DiscoveryCount}개\n" +
+            $"누적 거리 {Fmt.Steps(s.Stats.DistanceTotal)} · 발견 {s.Stats.Discoveries}개\n" +
             $"모은 별가루 {Fmt.Compact(s.Stats.StardustEarned)} · 받은 별빛 {Fmt.Duration(s.Stats.StarlightEarned)} · 부스트 {Fmt.Duration(s.Stats.BoostSeconds)}",
             $"Launched {s.CreatedAt.ToLocalTime():yyyy-MM-dd} · Flight time {Fmt.Duration(s.Stats.PlaySeconds)}\n" +
-            $"Distance {Fmt.Steps(s.Distance)} · {s.DiscoveryCount} discoveries\n" +
+            $"Total distance {Fmt.Steps(s.Stats.DistanceTotal)} · {s.Stats.Discoveries} discoveries\n" +
             $"Stardust earned {Fmt.Compact(s.Stats.StardustEarned)} · Starlight received {Fmt.Duration(s.Stats.StarlightEarned)} · Boosted {Fmt.Duration(s.Stats.BoostSeconds)}");
         if (_stats.Text != text) _stats.Text = text;
+
+        // 이 컴퓨터에서 기록 폴더를 찾았는지 (호스트가 시작할 때·스캔마다 다시 본다)
+        foreach (var (id, label) in _found)
+        {
+            bool? found = Host.ProviderFound.TryGetValue(id, out var f) ? f : null;
+            string t = found switch
+            {
+                true => L.T("찾음", "found"),
+                false => L.T("없음", "not found"),
+                null => L.T("확인 중", "checking"),
+            };
+            if (label.Text == t) continue;
+            label.Text = t;
+            label.Foreground = Rendering.SkinArt.Solid(found == true ? Core.Art.Palette.Starlight : Core.Art.Palette.TextDim);
+        }
     }
 }

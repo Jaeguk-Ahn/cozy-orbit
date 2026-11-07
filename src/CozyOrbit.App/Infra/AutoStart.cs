@@ -24,16 +24,35 @@ internal static class AutoStart
 
     private static string AgentPath => Path.Combine(AppPaths.Home, "Library", "LaunchAgents", AgentLabel + ".plist");
 
+    /// <summary>
+    /// 등록돼 있는지. 등록된 실행 파일이 사라졌으면(exe 를 옮기거나 이름을 바꿈) 지금 실행 파일로 다시 등록한다 —
+    /// 아니면 설정엔 켜짐으로 보이는데 로그인 때 아무것도 뜨지 않는다. 다른 곳의 실행 파일이 멀쩡히 있으면 건드리지 않는다.
+    /// </summary>
     public static bool IsEnabled()
     {
         try
         {
+            string? registered = null;
             if (OperatingSystem.IsWindows())
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
-                return key?.GetValue(ValueName) is string;
+                if (key?.GetValue(ValueName) is not string command) return false;
+                // "C:\…\CozyOrbit.exe" --autostart
+                registered = command.StartsWith('"') && command.IndexOf('"', 1) is var end and > 0 ? command[1..end] : command;
             }
-            if (OperatingSystem.IsMacOS()) return File.Exists(AgentPath);
+            else if (OperatingSystem.IsMacOS())
+            {
+                if (!File.Exists(AgentPath)) return false;
+                var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(AgentPath), "<array><string>(.*?)</string>");
+                registered = m.Success ? System.Net.WebUtility.HtmlDecode(m.Groups[1].Value) : null;
+            }
+            else return false;
+            if (registered != null && !File.Exists(registered))
+            {
+                AppLog.Info($"자동 시작에 등록된 실행 파일이 없어 지금 경로로 다시 등록: {registered}");
+                return SetEnabled(true);
+            }
+            return true;
         }
         catch (Exception ex) { AppLog.Warn($"자동 시작 상태 확인 실패: {ex.Message}"); }
         return false;

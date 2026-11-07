@@ -130,4 +130,47 @@ public class StarlightLedgerTests
         StarlightLedger.Apply(s, Array.Empty<ProviderScan>(), Now);
         Assert.DoesNotContain("2000-01-01", s.Ledger.CreditedWeighted.Keys);
     }
+
+    [Fact]
+    public void ProviderFailingAcrossMidnightIsCaughtUpWhenItRecovers()
+    {
+        var evening = new DateTimeOffset(new DateTime(2026, 11, 7, 21, 0, 0, DateTimeKind.Local));
+        var s = GameState.New(evening);
+        s.Settings.AutoBoost = false;
+        s.Upgrades[Upgrades.Battery] = 20;
+        CandyLedger.BeginSession(s.Candy, evening);
+        var a = Out("a", evening.AddHours(1), 100_000);         // p1, 22:00
+        var b = Out("b", evening.AddHours(2.5), 200_000);       // p2, 23:30
+        var c = Out("c", evening.AddHours(3.25), 50_000);       // p1, 다음 날 00:15
+        var failed = new ProviderScan("p2", "p2", Array.Empty<UsageEntry>(), "busy");
+
+        // 스캐너처럼 하한 이후 레코드만 돌려준다
+        IReadOnlyList<ProviderScan> Read(DateTimeOffset now, bool p2Ok, params UsageEntry[] p1)
+        {
+            var since = StarlightLedger.ScanSince(s.Ledger, now);
+            var p1Scan = Scan("p1", p1.Where(e => e.Date >= since).ToArray());
+            return new[] { p1Scan, p2Ok ? Scan("p2", new[] { b }.Where(e => e.Date >= since).ToArray()) : failed };
+        }
+        void Step(DateTimeOffset now, bool p2Ok, params UsageEntry[] p1)
+        {
+            var scans = Read(now, p2Ok, p1);
+            StarlightLedger.Apply(s, scans, now);
+            CandyLedger.Apply(s.Candy, scans, now);
+        }
+
+        Step(evening.AddMinutes(30), p2Ok: true);
+        Step(evening.AddHours(2.75), p2Ok: false, a);           // 23:45 — p2 실패
+        Step(evening.AddHours(3.5), p2Ok: false, a, c);         // 00:30 — 아직 실패, 하한은 어제 0시에 머문다
+        Assert.Equal(GameState.LocalMidnight(evening), StarlightLedger.ScanSince(s.Ledger, evening.AddHours(3.5)));
+
+        Step(evening.AddHours(4), p2Ok: true, a, c);            // 01:00 — 복구
+        string yesterday = StarlightLedger.DayKey(evening), today = StarlightLedger.DayKey(evening.AddHours(4));
+        Assert.Equal(300_000, s.Ledger.CreditedWeighted[yesterday], 6);
+        Assert.Equal(50_000, s.Ledger.CreditedWeighted[today], 6);
+        Assert.Equal(Balance.DailyStarlight(300_000) + Balance.DailyStarlight(50_000), s.Starlight, 6);
+        Assert.Equal(350_000 / CandyLedger.WeightedPerCandy, s.Candy.Balance, 9);
+
+        // 다 읽혔으니 하한이 오늘로 올라간다
+        Assert.Equal(GameState.LocalMidnight(evening.AddHours(4)), StarlightLedger.ScanSince(s.Ledger, evening.AddHours(4)));
+    }
 }

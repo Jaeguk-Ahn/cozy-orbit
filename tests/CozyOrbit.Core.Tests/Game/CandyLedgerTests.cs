@@ -83,4 +83,45 @@ public class CandyLedgerTests
         Assert.Single(c.Sessions);
         Assert.Equal(T0, c.Sessions[0].Start);
     }
+
+    [Fact]
+    public void SessionAcrossMidnightEarnsBothDaysExactlyOnce()
+    {
+        var night = new DateTimeOffset(new DateTime(2026, 11, 7, 23, 0, 0, DateTimeKind.Local));
+        var c = new CandyState();
+        CandyLedger.BeginSession(c, night);
+        var late = Out("late", night.AddMinutes(30), 40_000);
+        var early = Out("early", night.AddMinutes(80), 10_000);
+
+        Assert.Equal(40_000 / CandyLedger.WeightedPerCandy, CandyLedger.Apply(c, new[] { Scan(late) }, night.AddMinutes(50)), 9);
+
+        // 자정 뒤엔 스캔 하한이 오늘 0시라 어제 몫은 안 보인다 — 오늘 몫은 어제 지급분과 상관없이 받는다
+        Assert.Equal(10_000 / CandyLedger.WeightedPerCandy, CandyLedger.Apply(c, new[] { Scan(early) }, night.AddMinutes(90)), 9);
+        Assert.Equal(0, CandyLedger.Apply(c, new[] { Scan(early) }, night.AddMinutes(100)));
+        // 두 날이 다 보이는 스캔이 와도 다시 주지 않는다
+        Assert.Equal(0, CandyLedger.Apply(c, new[] { Scan(late, early) }, night.AddMinutes(110)));
+
+        Assert.Equal(50_000 / CandyLedger.WeightedPerCandy, c.Balance, 9);
+        Assert.Equal(50_000, c.Sessions[0].CreditedWeighted, 9);
+    }
+
+    [Fact]
+    public void SessionsFromOlderSavesKeepTheirCredit()
+    {
+        // 날짜별 장부가 없던 세이브: 그날 안의 구간은 이미 준 몫을 다시 주지 않는다
+        var c = new CandyState();
+        c.Sessions.Add(new PlaySession { Start = T0, End = T0.AddMinutes(10), CreditedWeighted = 20_000 });
+        var a = Out("a", T0.AddMinutes(5), 20_000);
+        Assert.Equal(0, CandyLedger.Apply(c, new[] { Scan(a) }, T0.AddMinutes(11)));
+
+        Assert.Equal(5_000 / CandyLedger.WeightedPerCandy,
+            CandyLedger.Apply(c, new[] { Scan(a, Out("b", T0.AddMinutes(12), 5_000)) }, T0.AddMinutes(13)), 9);
+
+        // 자정을 넘긴 옛 구간: 오늘 몫은 처음부터 받는다
+        var night = new DateTimeOffset(new DateTime(2026, 11, 7, 23, 0, 0, DateTimeKind.Local));
+        var old = new CandyState();
+        old.Sessions.Add(new PlaySession { Start = night, End = night.AddMinutes(90), CreditedWeighted = 40_000 });
+        Assert.Equal(10_000 / CandyLedger.WeightedPerCandy,
+            CandyLedger.Apply(old, new[] { Scan(Out("today", night.AddMinutes(80), 10_000)) }, night.AddMinutes(91)), 9);
+    }
 }

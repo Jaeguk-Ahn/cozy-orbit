@@ -50,9 +50,9 @@ public static class UpdateService
     private static void OnTimer()
     {
         _timer!.Interval = Interval;
-        if (!_cleaned)
+        if (!_cleaned && !Installer.IsBusy)
         {
-            // 지난 업데이트가 남긴 옛 exe·받은 파일 — 마무리 프로세스가 끝날 틈을 두고 지운다
+            // 지난 업데이트가 남긴 옛 exe·받은 파일 — 마무리 프로세스가 끝날 틈을 두고 지운다 (설치 중이면 다음 차례에)
             _cleaned = true;
             Installer.CleanupLeftovers();
         }

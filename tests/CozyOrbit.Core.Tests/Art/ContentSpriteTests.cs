@@ -29,7 +29,7 @@ public class ContentSpriteTests
     {
         var ids = Destinations.All.Select(d => d.Sprite)
             .Concat(Decor.All.Select(d => d.Sprite))
-            .Concat(new[] { Destinations.NamelessSprite, "fx_shooting_star", "fx_meteor", "fx_space_whale", "fx_heart", "fx_note",
+            .Concat(new[] { Destinations.NamelessSprite, "fx_shooting_star", "fx_meteor", "fx_space_whale", "fx_heart", "fx_note", "fx_zzz",
                             "icon_goal", "icon_trophy", "icon_decor", "icon_chart", "icon_voyage", "icon_candy", "icon_shop" });
         var missing = ids.Where(id => !SpriteLibrary.TryGet(id, out _)).ToList();
         Assert.Empty(missing);

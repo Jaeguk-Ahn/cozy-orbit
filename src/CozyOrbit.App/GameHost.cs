@@ -51,8 +51,14 @@ public sealed class GameHost : IDisposable
     public event Action? VoyageReady;
     /// <summary>새 항해를 떠났을 때 (새 목적지, 받은 별사탕)</summary>
     public event Action<DestinationDef, double>? VoyageStarted;
+    /// <summary>범용 알림 (이미 현지화한 글, 아이콘 스프라이트 id) — 큰 창은 토스트, 플로팅은 선장 말풍선</summary>
+    public event Action<string, string>? Noticed;
+
+    /// <summary>플레이어에게 짧은 알림을 띄운다 (text 는 L.T 로 만든 글, sprite 는 SpriteLibrary id)</summary>
+    public void Notify(string text, string sprite) => Noticed?.Invoke(text, sprite);
 
     private bool _voyageReady;
+    private bool _rescanPending;
 
     public GameHost(SaveStore? store = null, UsageScanner? scanner = null)
     {
@@ -62,10 +68,57 @@ public sealed class GameHost : IDisposable
         // 기록 그래프가 이 기능 이전 세이브에서도 비지 않게 별빛 장부로 채운다
         UsageHistory.SeedFromLedger(State);
         L.SetLanguage(State.Settings.Language);
+        // 이미 항해해 온 옛 세이브엔 첫 실행 안내를 띄우지 않는다
+        Onboarding.SkipIfAlreadySailing(State);
+        Sectors.BackfillCompletedCount(State);
 
         _tick = new DispatcherTimer(TickInterval, DispatcherPriority.Background, (_, _) => Tick());
         _save = new DispatcherTimer(SaveInterval, DispatcherPriority.Background, (_, _) => Save());
         _scan = new DispatcherTimer(ScanInterval, DispatcherPriority.Background, (_, _) => _ = ScanNowAsync());
+        // AI 도구 찾기: 지금 한 번 + 스캔이 끝날 때마다
+        Scanned += () => { if (!Scanning) DetectProviders(); };
+        DetectProviders();
+        // 구역 완성 보상·연속 출석: 진행마다 (자리 비움 요약 경로의 발견도 놓치지 않게 Discovered 대신 Ticked)
+        Ticked += CheckMilestones;
+    }
+
+    private int _milestoneVoyage = -1;
+    private int _milestoneCount = -1;
+    private DateTimeOffset _nextStreakCheck;
+
+    /// <summary>발견 수가 바뀌었으면 구역 완성 보상을, 1분마다 연속 출석 날짜를 확인한다</summary>
+    private void CheckMilestones()
+    {
+        var now = DateTimeOffset.Now;
+        if (now >= _nextStreakCheck)
+        {
+            _nextStreakCheck = now.AddMinutes(1);
+            PlayStreak.Visit(State, now);
+        }
+        if (State.Voyage == _milestoneVoyage && State.DiscoveryCount == _milestoneCount) return;
+        _milestoneVoyage = State.Voyage;
+        _milestoneCount = State.DiscoveryCount;
+
+        var rewards = Sectors.ClaimCompleted(State);
+        if (rewards.Count == 0) return;
+        double dust = rewards.Sum(r => r.Stardust);
+        double candy = rewards.Sum(r => r.Candy);
+        AppLog.Info($"구역 완성 {string.Join(", ", rewards.Select(r => Sectors.Key(State.Voyage, r.Sector.Number)))}: 별가루 +{dust:0}, 별사탕 +{candy:0}");
+        string text = rewards.Count == 1
+            ? L.T($"{rewards[0].Sector.Name} 구역 완성!\n별가루 +{Fmt.Compact(dust)} · 별사탕 +{Fmt.Compact(candy)}",
+                  $"{rewards[0].Sector.Name} complete!\nStardust +{Fmt.Compact(dust)} · Star candy +{Fmt.Compact(candy)}")
+            : L.T($"구역 {rewards.Count}곳 완성!\n별가루 +{Fmt.Compact(dust)} · 별사탕 +{Fmt.Compact(candy)}",
+                  $"{rewards.Count} sectors complete!\nStardust +{Fmt.Compact(dust)} · Star candy +{Fmt.Compact(candy)}");
+        Infra.Sound.Play(CozyOrbit.Core.Audio.SoundId.Star);
+        Save();
+        Notify(text, "icon_goal");
+    }
+
+    /// <summary>우주 고래에게 인사했다 (도전과제용 기록)</summary>
+    public void GreetWhale()
+    {
+        State.Stats.WhaleGreets++;
+        Save();
     }
 
     /// <summary>오프라인 진행을 따라잡고 타이머를 켠다. 첫 진행 요약은 Returned 로 알리므로 구독 후에 부른다.</summary>
@@ -102,19 +155,26 @@ public sealed class GameHost : IDisposable
         Ticked?.Invoke();
     }
 
-    public async Task ScanNowAsync()
+    /// <param name="queueIfBusy">이미 도는 중이면 끝난 뒤 한 번 더 (설정을 바꿨을 때만 — 주기 스캔은 겹치면 그냥 건너뛴다)</param>
+    public async Task ScanNowAsync(bool queueIfBusy = false)
     {
-        if (Scanning) return;
-        Scanning = true;
-        Scanned?.Invoke();
+        if (Scanning)
+        {
+            // 도는 중인 스캔은 예전 설정(꺼 둔 소스 등)으로 읽는 중 — 끝나면 한 번 더
+            if (queueIfBusy) _rescanPending = true;
+            return;
+        }
         try
         {
+            Scanning = true;
+            Scanned?.Invoke();
             var now = DateTimeOffset.Now;
             var since = StarlightLedger.ScanSince(State.Ledger, now);
             var disabled = new HashSet<string>(State.Settings.DisabledProviders);
             var scans = await Task.Run(() => _scanner.ScanAsync(since, disabled, _cts.Token));
-            // 스캔하는 동안 진행된 시간을 먼저 반영한 뒤 별빛을 담는다 (배터리 여유 계산이 지금 기준이 되게)
-            GameRules.CatchUp(State, DateTimeOffset.Now);
+            // 스캔하는 동안 진행된 시간을 먼저 반영한 뒤 별빛을 담는다 (배터리 여유 계산이 지금 기준이 되게).
+            // Tick 으로 돌려야 절전에서 깬 직후에도 자리 비움 요약·별사탕 구간이 제대로 처리된다.
+            Tick();
             var credit = StarlightLedger.Apply(State, scans, DateTimeOffset.Now);
             double candy = CandyLedger.Apply(State.Candy, scans, DateTimeOffset.Now);
             UsageHistory.Record(State, scans, candy, DateTimeOffset.Now);
@@ -124,8 +184,9 @@ public sealed class GameHost : IDisposable
             {
                 if (credit.TotalStarlight > 0) LastCredit = credit;
                 AppLog.Info($"별빛 +{credit.StarlightAdded:0.#} (넘침 {credit.OverflowStarlight:0.#} → 별가루 {credit.OverflowDust:0.#}), 별사탕 +{candy:0.##}");
-                Credited?.Invoke(credit, candy);
+                // 화면 쪽 처리에서 문제가 나도 받은 별빛은 남게 먼저 저장
                 Save();
+                Credited?.Invoke(credit, candy);
             }
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested)
@@ -140,11 +201,23 @@ public sealed class GameHost : IDisposable
             Scanning = false;
             Scanned?.Invoke();
         }
+        if (_rescanPending && !_cts.IsCancellationRequested)
+        {
+            _rescanPending = false;
+            await ScanNowAsync();
+        }
+    }
+
+    /// <summary>틱 밖(구매·출발·별똥별)에서 진행을 따라잡는다 — 그 사이 발견도 알림·소리가 나게</summary>
+    private void CatchUpNow()
+    {
+        var r = GameRules.CatchUp(State, DateTimeOffset.Now);
+        foreach (var d in r.Discoveries) Discovered?.Invoke(d);
     }
 
     public bool Buy(string upgradeId)
     {
-        GameRules.CatchUp(State, DateTimeOffset.Now);
+        CatchUpNow();
         if (!GameRules.TryBuy(State, upgradeId)) return false;
         Infra.Sound.Play(CozyOrbit.Core.Audio.SoundId.Buy);
         Save();
@@ -155,7 +228,7 @@ public sealed class GameHost : IDisposable
     /// <summary>새 항해 떠나기 (도감을 다 채웠을 때만)</summary>
     public bool Depart()
     {
-        GameRules.CatchUp(State, DateTimeOffset.Now);
+        CatchUpNow();
         double candy = Voyages.DepartureCandy(State);
         if (!Voyages.Depart(State)) return false;
         var dest = Destinations.Current(State);
@@ -170,7 +243,7 @@ public sealed class GameHost : IDisposable
     /// <summary>별똥별을 잡았다 (small = 유성우의 작은 별똥). 받은 별가루를 돌려준다.</summary>
     public double CatchShootingStar(bool small)
     {
-        GameRules.CatchUp(State, DateTimeOffset.Now);
+        CatchUpNow();
         double reward = GameRules.CatchShootingStar(State, small);
         Ticked?.Invoke();
         return reward;
@@ -215,7 +288,54 @@ public sealed class GameHost : IDisposable
         if (enabled) State.Settings.DisabledProviders.Remove(providerId);
         else State.Settings.DisabledProviders.Add(providerId);
         Save();
-        _ = ScanNowAsync();
+        _ = ScanNowAsync(queueIfBusy: true);
+    }
+
+    // ── AI 도구 찾기 · 첫 실행 안내 ──
+
+    /// <summary>프로바이더 id → 이 컴퓨터에서 기록 폴더를 찾았는지. 시작할 때와 스캔이 끝날 때마다 다시 본다 (찾기 전엔 비어 있음).</summary>
+    public IReadOnlyDictionary<string, bool> ProviderFound { get; private set; } = new Dictionary<string, bool>();
+    /// <summary>ProviderFound 가 바뀌었을 때 (UI 스레드)</summary>
+    public event Action? ProvidersDetected;
+    /// <summary>설정에서 "안내 다시 보기"를 눌렀을 때</summary>
+    public event Action? OnboardingRequested;
+    private bool _detecting;
+
+    /// <summary>폴더가 있는지만 백그라운드에서 보고, 결과는 UI 스레드에서 바꾼다</summary>
+    private void DetectProviders()
+    {
+        if (_detecting) return;
+        _detecting = true;
+        var providers = Providers;
+        Task.Run(() =>
+        {
+            var now = DateTimeOffset.Now;
+            var found = ProviderDetection.Detect(providers, new ProviderContext { Now = now, Since = now });
+            Dispatcher.UIThread.Post(() =>
+            {
+                _detecting = false;
+                var old = ProviderFound;
+                bool changed = found.Count != old.Count || found.Any(kv => !old.TryGetValue(kv.Key, out var v) || v != kv.Value);
+                ProviderFound = found;
+                if (changed) ProvidersDetected?.Invoke();
+            });
+        });
+    }
+
+    /// <summary>첫 실행 안내를 다 봤거나 닫았다</summary>
+    public void FinishOnboarding()
+    {
+        if (State.Settings.OnboardingDone) return;
+        State.Settings.OnboardingDone = true;
+        Save();
+    }
+
+    /// <summary>첫 실행 안내를 처음부터 다시 (설정)</summary>
+    public void ReplayOnboarding()
+    {
+        State.Settings.OnboardingDone = false;
+        Save();
+        OnboardingRequested?.Invoke();
     }
 
     public void Save()

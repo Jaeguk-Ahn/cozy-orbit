@@ -6,6 +6,7 @@ using Avalonia.Media;
 using CozyOrbit.Core.Art;
 using CozyOrbit.Core.Game;
 using CozyOrbit.Core.Infra;
+using CozyOrbit.Core.Usage;
 
 namespace CozyOrbit.App.Views.Pages;
 
@@ -17,11 +18,25 @@ public sealed class LogPage : Page
     private readonly StackPanel _root = new() { Spacing = 6 };
     /// <summary>그래프 기간 (7 또는 30일)</summary>
     private int _rangeDays = 7;
-    private Metric _metric = Metric.Tokens;
+    /// <summary>처음엔 가중 토큰 — 별빛 장부로 채운 옛 날짜엔 토큰 원값이 없어 "토큰" 그래프가 비어 보인다. 버튼으로 고르면 그대로 둔다.</summary>
+    private Metric _metric = Metric.Weighted;
 
     public LogPage(GameHost host) : base(host)
     {
         Content = _root;
+    }
+
+    // AI 도구 찾기 결과가 스캔보다 늦게 오면 빈 화면 안내를 다시 그린다 (화면에 붙어 있는 동안만 구독)
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        Host.ProvidersDetected += Refresh;
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        Host.ProvidersDetected -= Refresh;
+        base.OnDetachedFromVisualTree(e);
     }
 
     public override void Refresh()
@@ -46,11 +61,7 @@ public sealed class LogPage : Page
                      "The more you use, the slower it fills (resets daily). When the battery is full, extra light turns into stardust."), "dim"))));
 
         _root.Children.Add(Header(L.T("오늘 읽은 AI 사용량", "AI usage read today"), "icon_log"));
-        if (Host.Today.Count == 0)
-        {
-            _root.Children.Add(Text(L.T("아직 오늘 사용량이 없어요. Claude Code · Codex · Gemini · OpenCode · omp 등 이 컴퓨터의 AI 도구 기록을 읽어요 (읽기만 해요).",
-                                        "No usage yet today. Reads local logs of AI tools such as Claude Code, Codex, Gemini, OpenCode and omp (read-only)."), "dim"));
-        }
+        if (Host.Today.Count == 0) _root.Children.Add(NoUsageToday(s));
         foreach (var p in Host.Today)
         {
             var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
@@ -96,6 +107,40 @@ public sealed class LogPage : Page
             $"하루 별빛(초) = {Balance.DailyStarlightScale} × ln(1 + 가중 토큰 ÷ {Fmt.Compact(Balance.DailyStarlightPivot)})\n별빛 1 = 부스트 1초",
             $"Weighted = output ×{Balance.WeightOutput} + input ×{Balance.WeightInput} + cache write ×{Balance.WeightCacheWrite} + cache read ×{Balance.WeightCacheRead}\n" +
             $"Daily starlight (s) = {Balance.DailyStarlightScale} × ln(1 + weighted ÷ {Fmt.Compact(Balance.DailyStarlightPivot)})\n1 starlight = 1 second of boost"), "dim"));
+    }
+
+    /// <summary>
+    /// 오늘 사용량이 없을 때. 켜 둔 도구의 기록 폴더를 하나도 못 찾았으면 친절한 빈 화면(기본 속도·태양 돛·읽는 도구 목록),
+    /// 찾았는데 오늘 쓴 게 없으면 찾은 도구 이름과 함께 짧게. 아직 찾아보기 전이면 예전처럼 한 줄.
+    /// </summary>
+    private Control NoUsageToday(GameState s)
+    {
+        var disabled = s.Settings.DisabledProviders;
+        var enabledFound = Host.Providers
+            .Where(p => !disabled.Contains(p.Id) && Host.ProviderFound.GetValueOrDefault(p.Id))
+            .Select(p => p.DisplayName).ToList();
+        string supported = string.Join(" · ", Host.Providers.Select(p => p.DisplayName));
+
+        switch (ProviderDetection.AnyEnabledFound(Host.ProviderFound, Host.Providers.Select(p => p.Id), disabled))
+        {
+            case false:
+                var col = Column(4,
+                    Row(6, new PixelIcon { Sprite = Rendering.SkinArt.CaptainFur(s), Scale = 2, Animate = true, VerticalAlignment = VerticalAlignment.Center },
+                        Text(L.T("이 컴퓨터에서 AI 도구 기록을 찾지 못했어요", "No AI tool logs found on this computer"), "h")),
+                    Text(L.T("괜찮아요, 도토리호는 기본 속도로 계속 날아가요. 연구 탭의 태양 돛을 올리면 토큰 없이도 별빛이 조금씩 모여요.",
+                             "That's okay — the ship keeps flying at base speed. The Solar Sail research gathers a little starlight even without tokens.")),
+                    Text(L.T($"읽을 수 있는 도구: {supported}", $"Supported tools: {supported}"), "dim"));
+                if (disabled.Count > 0)
+                    col.Children.Add(Text(L.T("설정에서 꺼 둔 도구는 빼고 찾았어요.", "Tools turned off in Settings aren't counted."), "dim"));
+                return Card(col);
+            case true:
+                string names = string.Join(" · ", enabledFound);
+                return Text(L.T($"아직 오늘 사용량이 없어요. 찾은 도구: {names} — 쓰고 나면 다음에 읽을 때 별빛이 돼요 (읽기만 해요).",
+                                $"No usage yet today. Found: {names} — use one and it turns into starlight on the next read (read-only)."), "dim");
+            default:
+                return Text(L.T($"아직 오늘 사용량이 없어요. 이 컴퓨터의 AI 도구 기록을 읽어요 (읽기만 해요): {supported}",
+                                $"No usage yet today. Reads local logs of these AI tools (read-only): {supported}"), "dim");
+        }
     }
 
     // ── 날짜별 사용량 그래프 ──

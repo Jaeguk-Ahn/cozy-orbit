@@ -10,6 +10,7 @@ public class SoundSynthTests
     [InlineData(SoundId.Star)]
     [InlineData(SoundId.Buy)]
     [InlineData(SoundId.Voyage)]
+    [InlineData(SoundId.Whale)]
     public void EffectsAreShortAudibleAndNeverClip(SoundId id)
     {
         var pcm = SoundSynth.Effect(id);

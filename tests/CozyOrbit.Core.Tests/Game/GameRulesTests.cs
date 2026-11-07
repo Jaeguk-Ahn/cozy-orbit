@@ -90,6 +90,25 @@ public class GameRulesTests
     }
 
     [Fact]
+    public void CatchUpReportsTheSecondsDroppedByTheCap()
+    {
+        var s = NewGame();
+        double cap = GameRules.OfflineCap(0).TotalSeconds;
+        var r = GameRules.CatchUp(s, T0.AddSeconds(cap + 3600));
+        Assert.Equal(3600, r.CappedSeconds, 6);
+
+        // 상한 안쪽이면 버린 시간이 없다 (경계: 딱 상한만큼)
+        Assert.Equal(0, GameRules.CatchUp(s, s.LastTick.AddSeconds(cap)).CappedSeconds);
+
+        // 침낭 연구로 상한이 늘면 같은 공백도 덜 버린다
+        var bunk = NewGame();
+        bunk.Upgrades[Upgrades.Bunk] = 1;
+        var rb = GameRules.CatchUp(bunk, T0.AddSeconds(cap + 3600));
+        Assert.Equal(Math.Max(0, cap + 3600 - GameRules.OfflineCap(1).TotalSeconds), rb.CappedSeconds, 6);
+        Assert.True(rb.CappedSeconds < r.CappedSeconds);
+    }
+
+    [Fact]
     public void ClockGoingBackwardsGivesNothing()
     {
         var s = NewGame();

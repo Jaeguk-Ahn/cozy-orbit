@@ -143,14 +143,15 @@ public sealed class UpdateInstallerTests : IDisposable
     }
 
     [Fact]
-    public void FinishDoesNothingWhileTheOldAppRuns()
+    public void FinishKeepsTheOldAppWhenItDoesNotExitAndRelaunchesIt()
     {
         var source = Path.Combine(_dir, "staged.exe");
         File.WriteAllText(source, "new");
-        bool relaunched = false;
-        Assert.False(UpdateInstaller.Finish(UpdateInstaller.Kind.WindowsExe, _exe, source, () => false, _ => relaunched = true));
+        string? relaunched = null;
+        Assert.False(UpdateInstaller.Finish(UpdateInstaller.Kind.WindowsExe, _exe, source, () => false, p => { relaunched = p; return true; }));
         Assert.Equal("old", File.ReadAllText(_exe));
-        Assert.False(relaunched);
+        // 옛 앱이 이미 끝나는 중이었어도 앱이 사라지지 않게 설치된 것을 다시 띄운다
+        Assert.Equal(_exe, relaunched);
     }
 
     [Fact]

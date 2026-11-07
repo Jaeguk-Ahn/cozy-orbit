@@ -11,10 +11,11 @@ public sealed class SingleInstance : IDisposable
     private const string LockName = "instance.lock";
     private const string SignalName = "show.signal";
 
-    private readonly FileStream _lock;
+    /// <summary>잠금 파일 (못 만든 환경이면 null — 중복 실행 막기 없이 동작)</summary>
+    private readonly FileStream? _lock;
     private FileSystemWatcher? _watcher;
 
-    private SingleInstance(FileStream lockStream) => _lock = lockStream;
+    private SingleInstance(FileStream? lockStream) => _lock = lockStream;
 
     public static SingleInstance? TryAcquire()
     {
@@ -26,6 +27,13 @@ public sealed class SingleInstance : IDisposable
         catch (IOException)
         {
             return null;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // 잠금 파일을 못 쓰는 환경(읽기 전용·백신) — null 을 돌려주면 "이미 실행 중"으로 여겨 꺼지므로,
+            // 중복 실행 막기만 포기하고 그대로 띄운다
+            AppLog.Warn($"실행 잠금 파일을 만들지 못함: {ex.Message}");
+            return new SingleInstance(null);
         }
     }
 
@@ -51,6 +59,6 @@ public sealed class SingleInstance : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
-        _lock.Dispose();
+        _lock?.Dispose();
     }
 }

@@ -24,8 +24,13 @@ public partial class App : Application
     private FloatingWindow? _floating;
     private TrayIcon? _tray;
     private bool _quitting;
+    /// <summary>트레이 툴팁을 마지막으로 고친 때 (진행마다 고치지 않게)</summary>
+    private DateTimeOffset _trayTipAt;
+    private static readonly TimeSpan TrayTipInterval = TimeSpan.FromSeconds(5);
 
     public GameHost Host => _host!;
+    /// <summary>플로팅 창이 떠 있는지 (큰 창은 숨어 있어도 플로팅 말풍선이 알림을 맡는다)</summary>
+    public bool FloatingOpen => _floating != null;
     private static WindowIcon? _appIcon;
     /// <summary>Avalonia 가 뜬 뒤에만 읽을 수 있다 (정적 초기화 때는 자원 로더가 없다)</summary>
     public static WindowIcon AppIcon => _appIcon ??= new(AssetLoader.Open(new Uri("avares://CozyOrbit/Assets/app.ico")));
@@ -83,6 +88,7 @@ public partial class App : Application
             UpdateService.Start(_host);
             Sound.Attach(_host);
             SetupTray();
+            _host.Ticked += UpdateTrayTip;
             Instance?.WatchShowRequests(() => Dispatcher.UIThread.Post(ShowMain));
             // macOS: 독 아이콘을 눌러 다시 열기
             if (TryGetFeature(typeof(IActivatableLifetime)) is IActivatableLifetime activatable)
@@ -110,6 +116,23 @@ public partial class App : Application
         _tray = new TrayIcon { Icon = AppIcon, ToolTipText = "Cozy Orbit", Menu = menu, IsVisible = true };
         _tray.Clicked += (_, _) => ShowMain();
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
+        _trayTipAt = default;
+        UpdateTrayTip();
+    }
+
+    /// <summary>트레이 툴팁에 지금 상태 (거리 · 다음 발견까지). 진행은 0.1초마다라 5초에 한 번만 고친다.</summary>
+    private void UpdateTrayTip()
+    {
+        if (_tray == null || _host == null) return;
+        var now = DateTimeOffset.Now;
+        if (now - _trayTipAt < TrayTipInterval) return;
+        _trayTipAt = now;
+        var s = _host.State;
+        double left = Math.Max(0, Core.Game.GameRules.NextDiscoveryDistance(s) - s.Distance);
+        double eta = left / Math.Max(1e-9, Core.Game.GameRules.CurrentSpeed(s));
+        string tip = $"Cozy Orbit · {Core.Game.Fmt.Steps(s.Distance)} · "
+                     + L.T($"다음 발견 약 {Core.Game.Fmt.Duration(eta)}", $"next find ~{Core.Game.Fmt.Duration(eta)}");
+        if (_tray.ToolTipText != tip) _tray.ToolTipText = tip;
     }
 
     public void ShowMain()
@@ -194,11 +217,24 @@ public partial class App : Application
         L.SetLanguage(code);
         Host.Save();
         var oldMain = _main;
-        var pos = oldMain?.Position;
+        // 창 위치·크기·최대화 상태를 새 창에 그대로 (보이기 전에 놓아야 CenterScreen 이 덮지 않는다)
+        (PixelPoint Position, Size Size, WindowState State)? placement = oldMain is { } o ? (o.Position, o.ClientSize, o.WindowState) : null;
         _main = null;
         oldMain?.ForceClose();
+        if (placement is { } p)
+        {
+            var w = EnsureMain();
+            w.WindowStartupLocation = WindowStartupLocation.Manual;
+            w.Position = p.Position;
+            // 최대화면 지금 크기가 화면 크기라 기본 크기로 두고 상태만 옮긴다
+            if (p.State == WindowState.Maximized) w.WindowState = WindowState.Maximized;
+            else
+            {
+                w.Width = p.Size.Width;
+                w.Height = p.Size.Height;
+            }
+        }
         ShowMain();
-        if (pos is { } p) _main!.Position = p;
         _main!.SelectTab(MainWindow.Tab.Settings);
         var oldFloating = _floating;
         _floating = null;

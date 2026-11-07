@@ -23,6 +23,8 @@ public sealed class CollectionPage : Page
     private readonly TextBlock _detailFact = Text("", "dim");
     private readonly TextBlock _detailFound = Text("", "dim");
     private readonly Dictionary<string, (Border Cell, PixelIcon Icon)> _cells = new();
+    /// <summary>구역 머리글 — 만난 수 / 전체, 다 채우면 체크 아이콘</summary>
+    private readonly List<(int Sector, int Size, PixelIcon Icon, TextBlock Count)> _sectorHeaders = new();
     private int _shownDestination = -1;
     private int _viewDestination = -1;
     private int _shownCount = -1;
@@ -92,10 +94,16 @@ public sealed class CollectionPage : Page
         _shownDestination = _viewDestination;
         _grid.Children.Clear();
         _cells.Clear();
+        _sectorHeaders.Clear();
         var dest = Destinations.All[_viewDestination];
         foreach (var sector in dest.Sectors)
         {
-            _grid.Children.Add(Header(L.T($"구역 {sector.Number} · {sector.Name}", $"Sector {sector.Number} · {sector.Name}"), "icon_distance"));
+            var headerIcon = new PixelIcon { Sprite = "icon_distance", Scale = 1, VerticalAlignment = VerticalAlignment.Center };
+            var headerCount = new TextBlock { Classes = { "dim" }, VerticalAlignment = VerticalAlignment.Center };
+            var header = Row(6, headerIcon, Text(L.T($"구역 {sector.Number} · {sector.Name}", $"Sector {sector.Number} · {sector.Name}"), "h"), headerCount);
+            header.Margin = new Thickness(0, 6, 0, 2);
+            _grid.Children.Add(header);
+            _sectorHeaders.Add((sector.Number, Sectors.Size(dest, sector.Number), headerIcon, headerCount));
             var wrap = new WrapPanel { Orientation = Orientation.Horizontal };
             foreach (var d in dest.Catalog.Where(c => c.Sector == sector.Number))
             {
@@ -135,6 +143,15 @@ public sealed class CollectionPage : Page
             var (cell, icon) = _cells[d.Id];
             icon.Dim = !s.FoundAt.ContainsKey(d.Id);
             cell.BorderBrush = d.Id == _selected ? Brush("StarlightBrush") : Brush("OutlineBrush");
+        }
+        foreach (var (sector, size, icon, count) in _sectorHeaders)
+        {
+            int got = dest.Catalog.Count(d => d.Sector == sector && s.FoundAt.ContainsKey(d.Id));
+            bool complete = size > 0 && got >= size;
+            icon.Sprite = complete ? "icon_goal" : "icon_distance";
+            count.Text = complete ? L.T($"{got} / {size} 완성!", $"{got} / {size} complete!") : $"{got} / {size}";
+            if (complete) count.Foreground = Brush("StarlightBrush");
+            else count.ClearValue(TextBlock.ForegroundProperty);
         }
 
         // 고른 것이 없으면 이 목적지에서 가장 최근에 만난 천체

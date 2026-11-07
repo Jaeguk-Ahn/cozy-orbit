@@ -1,6 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using CozyOrbit.App.Views.Pages;
 using CozyOrbit.Core.Game;
 using CozyOrbit.Core.Infra;
@@ -14,7 +17,16 @@ public partial class MainWindow : Window
     private readonly GameHost _host;
     private readonly Dictionary<Tab, (ToggleButton Button, Func<Page> Create)> _tabs;
     private readonly Dictionary<Tab, Page> _pages = new();
-    private readonly Queue<(string Text, string Sprite, double Seconds)> _toasts = new();
+    private sealed record ToastItem(string Text, string Sprite, double Seconds);
+
+    /// <summary>창이 숨어 있는 동안 모아 두는 일반 알림 수 (넘치면 오래된 것부터 버린다)</summary>
+    private const int MaxHeldToasts = 6;
+
+    private readonly Queue<ToastItem> _toasts = new();
+    // 창이 숨어 있는 동안 (플로팅도 없을 때) 모아 두었다가 다시 보일 때 한꺼번에 알린다
+    private readonly List<DiscoveryEvent> _heldFound = new();
+    private TickResult? _heldReturn;
+    private double _heldLight, _heldOverflowDust, _heldCandy;
     private readonly DispatcherTimer _toastTimer;
     private Page? _current;
 
@@ -29,6 +41,7 @@ public partial class MainWindow : Window
         // 도트 글꼴은 12px 격자에 맞춰 그렸다 → 안티에일리어싱 없이 또렷하게
         Avalonia.Media.RenderOptions.SetTextRenderingMode(this, Avalonia.Media.TextRenderingMode.Alias);
         Scene.Host = host;
+        OnboardingPanel.Host = host;
 
         _tabs = new()
         {
@@ -46,6 +59,11 @@ public partial class MainWindow : Window
         FloatButton.Click += (_, _) => App.Current.EnterFloating();
         AutoBoostBox.IsChecked = host.State.Settings.AutoBoost;
         AutoBoostBox.IsCheckedChanged += (_, _) => host.SetAutoBoost(AutoBoostBox.IsChecked == true);
+        // 단축키는 툴팁에 살짝 (XAML 툴팁이 있으면 뒤에 붙인다)
+        int number = 1;
+        foreach (var (button, _) in _tabs.Values) AddShortcutTip(button, (number++).ToString());
+        AddShortcutTip(FloatButton, "F");
+        AddShortcutTip(BoostButton, "B");
 
         _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.5) };
         _toastTimer.Tick += (_, _) => NextToast();
@@ -58,6 +76,7 @@ public partial class MainWindow : Window
         host.SkinsChanged += OnSkinsChanged;
         host.VoyageReady += OnVoyageReady;
         host.VoyageStarted += OnVoyageStarted;
+        host.Noticed += OnNoticed;
         Closed += (_, _) =>
         {
             host.Ticked -= OnTicked;
@@ -68,6 +87,7 @@ public partial class MainWindow : Window
             host.SkinsChanged -= OnSkinsChanged;
             host.VoyageReady -= OnVoyageReady;
             host.VoyageStarted -= OnVoyageStarted;
+            host.Noticed -= OnNoticed;
             _toastTimer.Stop();
         };
 
@@ -87,7 +107,8 @@ public partial class MainWindow : Window
     private void OnVoyageStarted(DestinationDef dest, double candy)
     {
         ShowToast(L.T($"{dest.Name}(으)로 새 항해 시작!\n별사탕 +{Fmt.Compact(candy)}", $"New voyage to {dest.Name}!\nStar candy +{Fmt.Compact(candy)}"), dest.Sprite, 6);
-        foreach (var page in _pages.Values) page.Refresh();
+        // 다른 탭은 고를 때 SelectTab 이 새로 그린다 — 화면에 없는 페이지를 건드리면 리소스를 못 찾는다
+        _current?.Refresh();
     }
 
     public void SelectTab(Tab tab)
@@ -159,50 +180,203 @@ public partial class MainWindow : Window
 
     private void OnDiscovered(DiscoveryEvent d)
     {
-        ShowToast(L.T($"새 발견! {d.Name}\n별가루 +{Fmt.Compact(d.Reward)}", $"Discovered {d.Name}!\nStardust +{Fmt.Compact(d.Reward)}"), d.Sprite);
-        ToastSouvenirs(new[] { d });
-        _pages.GetValueOrDefault(Tab.Collection)?.Refresh();
-    }
-
-    /// <summary>발견으로 얻은 연구소 기념품 알림 (소유는 도감 기록으로 정해지므로 알리기만)</summary>
-    private void ToastSouvenirs(IEnumerable<DiscoveryEvent> found)
-    {
-        foreach (var d in found)
-            if (d.Id != null && Decor.SouvenirFor(d.Id) is { } souvenir)
-                ShowToast(L.T($"기념품을 얻었어요: {souvenir.Name}\n상점 → 연구소 꾸미기에서 놓을 수 있어요", $"Souvenir unlocked: {souvenir.Name}\nPlace it from Shop → Lab Decor"), souvenir.Sprite, 5);
-        _pages.GetValueOrDefault(Tab.Shop)?.Refresh();
+        switch (Mode)
+        {
+            case ToastMode.Show:
+                Enqueue(FoundToast(new[] { d }));
+                foreach (var t in SouvenirToasts(new[] { d })) Enqueue(t);
+                break;
+            case ToastMode.Hold:
+                _heldFound.Add(d);
+                break;
+        }
+        RefreshIfShown(Tab.Collection, Tab.Shop);
     }
 
     private void OnCredited(CreditResult c, double candy)
     {
-        var parts = new List<string>();
-        if (c.StarlightAdded > 0) parts.Add(L.T($"별빛 +{Fmt.Duration(c.StarlightAdded)}", $"Starlight +{Fmt.Duration(c.StarlightAdded)}"));
-        if (c.OverflowDust > 0) parts.Add(L.T($"넘친 별빛 → 별가루 +{Fmt.Compact(c.OverflowDust)}", $"overflow → stardust +{Fmt.Compact(c.OverflowDust)}"));
-        if (candy > 0) parts.Add(L.T($"별사탕 +{Fmt.Number(candy, 1)}", $"Star candy +{Fmt.Number(candy, 1)}"));
-        ShowToast(L.T("AI 사용량이 도착했어요", "Your AI usage arrived") + "\n" + string.Join(" · ", parts), candy > 0 && c.StarlightAdded <= 0 ? "icon_candy" : "icon_starlight");
-        _pages.GetValueOrDefault(Tab.Shop)?.Refresh();
+        switch (Mode)
+        {
+            case ToastMode.Show:
+                Enqueue(CreditToast(c.StarlightAdded, c.OverflowDust, candy));
+                break;
+            case ToastMode.Hold:
+                _heldLight += c.StarlightAdded;
+                _heldOverflowDust += c.OverflowDust;
+                _heldCandy += candy;
+                break;
+        }
+        RefreshIfShown(Tab.Shop, Tab.Log);
     }
 
-    private void OnSkinsChanged() => _pages.GetValueOrDefault(Tab.Shop)?.Refresh();
+    private void OnSkinsChanged() => RefreshIfShown(Tab.Shop);
 
     private void OnReturned(TickResult r)
     {
-        string text = L.T($"다녀오셨어요! {Fmt.Duration(r.Seconds)} 동안\n{Fmt.Steps(r.DistanceGained)} 나아가고 별가루 +{Fmt.Compact(r.StardustGained)}",
-                          $"Welcome back! In {Fmt.Duration(r.Seconds)}\nwe flew {Fmt.Steps(r.DistanceGained)}, stardust +{Fmt.Compact(r.StardustGained)}");
-        if (r.Discoveries.Count > 0)
-            text += L.T($"\n발견 {r.Discoveries.Count}개: {string.Join(", ", r.Discoveries.Take(3).Select(d => d.Name))}{(r.Discoveries.Count > 3 ? " …" : "")}",
-                        $"\n{r.Discoveries.Count} found: {string.Join(", ", r.Discoveries.Take(3).Select(d => d.Name))}{(r.Discoveries.Count > 3 ? " …" : "")}");
-        ShowToast(text, r.Discoveries.Count > 0 ? r.Discoveries[^1].Sprite : Rendering.SkinArt.Ship(_host.State).Normal, 6);
-        ToastSouvenirs(r.Discoveries);
-        _pages.GetValueOrDefault(Tab.Collection)?.Refresh();
+        switch (Mode)
+        {
+            case ToastMode.Show:
+                Enqueue(ReturnToast(r));
+                foreach (var t in SouvenirToasts(r.Discoveries)) Enqueue(t);
+                break;
+            case ToastMode.Hold:
+                // 숨어 있는 동안 여러 번 잠들었다 깨면 한 번의 요약으로 합친다
+                (_heldReturn ??= new TickResult()).Add(r);
+                break;
+        }
+        RefreshIfShown(Tab.Collection, Tab.Shop);
     }
 
-    private void OnScanned() => _pages.GetValueOrDefault(Tab.Log)?.Refresh();
+    private void OnScanned() => RefreshIfShown(Tab.Log);
+
+    private void OnNoticed(string text, string sprite) => ShowToast(text, sprite, 4.5);
+
+    /// <summary>지금 보이는 탭이 tabs 중 하나일 때만 새로 그린다 (나머지는 SelectTab 이 보여 줄 때 새로 그린다)</summary>
+    private void RefreshIfShown(params Tab[] tabs)
+    {
+        if (_current == null) return;
+        foreach (var tab in tabs)
+            if (ReferenceEquals(_pages.GetValueOrDefault(tab), _current))
+            {
+                _current.Refresh();
+                return;
+            }
+    }
+
+    // ── 토스트 글 ──
+
+    private static ToastItem FoundToast(IReadOnlyList<DiscoveryEvent> found)
+    {
+        if (found.Count == 1)
+        {
+            var d = found[0];
+            return new(L.T($"새 발견! {d.Name}\n별가루 +{Fmt.Compact(d.Reward)}", $"Discovered {d.Name}!\nStardust +{Fmt.Compact(d.Reward)}"), d.Sprite, 3.5);
+        }
+        string names = NameList(found);
+        double reward = found.Sum(d => d.Reward);
+        return new(L.T($"새 발견 {found.Count}개! 별가루 +{Fmt.Compact(reward)}\n{names}", $"{found.Count} discoveries! Stardust +{Fmt.Compact(reward)}\n{names}"), found[^1].Sprite, 5);
+    }
+
+    /// <summary>발견으로 얻은 연구소 기념품 알림 (소유는 도감 기록으로 정해지므로 알리기만). 여럿이면 하나로 묶는다.</summary>
+    private static IEnumerable<ToastItem> SouvenirToasts(IEnumerable<DiscoveryEvent> found)
+    {
+        var souvenirs = found.Where(d => d.Id != null).Select(d => Decor.SouvenirFor(d.Id!)).OfType<DecorDef>().ToList();
+        if (souvenirs.Count == 0) yield break;
+        if (souvenirs.Count == 1)
+        {
+            var s = souvenirs[0];
+            yield return new(L.T($"기념품을 얻었어요: {s.Name}\n상점 → 연구소 꾸미기에서 놓을 수 있어요", $"Souvenir unlocked: {s.Name}\nPlace it from Shop → Lab Decor"), s.Sprite, 5);
+            yield break;
+        }
+        string names = string.Join(", ", souvenirs.Take(3).Select(s => s.Name)) + (souvenirs.Count > 3 ? " …" : "");
+        yield return new(L.T($"기념품 {souvenirs.Count}개를 얻었어요: {names}\n상점 → 연구소 꾸미기에서 놓을 수 있어요", $"{souvenirs.Count} souvenirs unlocked: {names}\nPlace them from Shop → Lab Decor"), souvenirs[^1].Sprite, 6);
+    }
+
+    private static ToastItem CreditToast(double light, double overflowDust, double candy)
+    {
+        var parts = new List<string>();
+        if (light > 0) parts.Add(L.T($"별빛 +{Fmt.Duration(light)}", $"Starlight +{Fmt.Duration(light)}"));
+        if (overflowDust > 0) parts.Add(L.T($"넘친 별빛 → 별가루 +{Fmt.Compact(overflowDust)}", $"overflow → stardust +{Fmt.Compact(overflowDust)}"));
+        if (candy > 0) parts.Add(L.T($"별사탕 +{Fmt.Number(candy, 1)}", $"Star candy +{Fmt.Number(candy, 1)}"));
+        return new(L.T("AI 사용량이 도착했어요", "Your AI usage arrived") + "\n" + string.Join(" · ", parts), candy > 0 && light <= 0 ? "icon_candy" : "icon_starlight", 3.5);
+    }
+
+    /// <summary>"다녀오셨어요" 요약. 자리 비움 상한에 걸렸으면 비운 시간과 실제로 난 시간을 함께, 침낭 연구를 귀띔한다.</summary>
+    private ToastItem ReturnToast(TickResult r)
+    {
+        string sprite = r.Discoveries.Count > 0 ? r.Discoveries[^1].Sprite : Rendering.SkinArt.Ship(_host.State).Normal;
+        string found = r.Discoveries.Count == 0 ? ""
+            : L.T($"\n발견 {r.Discoveries.Count}개: {NameList(r.Discoveries)}", $"\n{r.Discoveries.Count} found: {NameList(r.Discoveries)}");
+        if (r.CappedSeconds < 60)
+            return new(L.T($"다녀오셨어요! {Fmt.Duration(r.Seconds)} 동안\n{Fmt.Steps(r.DistanceGained)} 나아가고 별가루 +{Fmt.Compact(r.StardustGained)}",
+                           $"Welcome back! In {Fmt.Duration(r.Seconds)}\nwe flew {Fmt.Steps(r.DistanceGained)}, stardust +{Fmt.Compact(r.StardustGained)}") + found, sprite, 6);
+
+        string away = Fmt.Duration(r.Seconds + r.CappedSeconds), flew = Fmt.Duration(r.Seconds);
+        // 토스트가 탐사선 옆 좁은 자리에 뜨므로 한 줄을 짧게 끊는다 (한글은 아무 데서나 줄이 바뀐다)
+        string text = L.T($"다녀오셨어요! {away} 만이에요\n그중 {flew}만 날았어요\n{Fmt.Steps(r.DistanceGained)} · 별가루 +{Fmt.Compact(r.StardustGained)}",
+                          $"Welcome back! Away {away},\nbut we flew only {flew}\n{Fmt.Steps(r.DistanceGained)} · stardust +{Fmt.Compact(r.StardustGained)}");
+        // 침낭을 더 키울 수 있으면 귀띔, 다 키웠으면 발견 목록
+        if (!Upgrades.Get(Upgrades.Bunk).IsMaxed(_host.State.Level(Upgrades.Bunk)))
+            text += L.T("\n포근한 침낭으로 더 길게!", "\nCozy Sleeping Bag → fly longer");
+        else
+            text += found;
+        return new(text, sprite, 8);
+    }
+
+    private static string NameList(IReadOnlyList<DiscoveryEvent> found) =>
+        string.Join(", ", found.Take(3).Select(d => d.Name)) + (found.Count > 3 ? " …" : "");
+
+    // ── 토스트 띄우기·모아 두기 ──
+
+    private enum ToastMode { Show, Hold, Drop }
+
+    /// <summary>창이 실제로 화면에 있는지 (트레이로 숨김·최소화가 아니면)</summary>
+    private bool Shown => IsVisible && WindowState != WindowState.Minimized;
+
+    /// <summary>보이면 바로, 숨어 있으면 모아 두고, 숨어 있어도 플로팅이 떠 있으면 버린다 (플로팅 말풍선이 이미 알렸다)</summary>
+    private ToastMode Mode => Shown ? ToastMode.Show : Application.Current is App { FloatingOpen: true } ? ToastMode.Drop : ToastMode.Hold;
 
     private void ShowToast(string text, string sprite, double seconds = 3.5)
     {
-        _toasts.Enqueue((text, sprite, seconds));
+        switch (Mode)
+        {
+            case ToastMode.Show:
+                Enqueue(new ToastItem(text, sprite, seconds));
+                break;
+            case ToastMode.Hold:
+                if (_toasts.Any(t => t.Text == text)) return; // 같은 알림은 한 번만
+                while (_toasts.Count >= MaxHeldToasts) _toasts.Dequeue();
+                _toasts.Enqueue(new ToastItem(text, sprite, seconds));
+                break;
+        }
+    }
+
+    private void Enqueue(ToastItem toast)
+    {
+        _toasts.Enqueue(toast);
         if (!Toast.IsVisible) NextToast();
+    }
+
+    /// <summary>숨어 있는 동안 모은 발견·지급·다녀옴을 요약 토스트로 바꿔 줄 맨 앞에 넣는다</summary>
+    private void FlushHeld()
+    {
+        var held = new List<ToastItem>();
+        if (_heldReturn is { } r)
+        {
+            held.Add(ReturnToast(r));
+            held.AddRange(SouvenirToasts(r.Discoveries));
+        }
+        if (_heldFound.Count > 0)
+        {
+            held.Add(FoundToast(_heldFound));
+            held.AddRange(SouvenirToasts(_heldFound));
+        }
+        if (_heldLight > 0 || _heldOverflowDust > 0 || _heldCandy > 0)
+            held.Add(CreditToast(_heldLight, _heldOverflowDust, _heldCandy));
+        _heldReturn = null;
+        _heldFound.Clear();
+        _heldLight = _heldOverflowDust = _heldCandy = 0;
+        if (held.Count == 0) return;
+        var rest = _toasts.ToArray();
+        _toasts.Clear();
+        foreach (var t in held.Concat(rest)) _toasts.Enqueue(t);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        // InitializeComponent 중에도 불린다 (타이머가 아직 없을 때)
+        if (_toastTimer == null) return;
+        if (change.Property != IsVisibleProperty && change.Property != WindowStateProperty) return;
+        if (!Shown)
+        {
+            // 보이지 않는 동안엔 띄운 토스트도 시간이 가지 않게
+            _toastTimer.Stop();
+            return;
+        }
+        FlushHeld();
+        if (Toast.IsVisible) _toastTimer.Start();
+        else NextToast();
     }
 
     private void NextToast()
@@ -215,8 +389,91 @@ public partial class MainWindow : Window
         }
         ToastText.Text = t.Text;
         ToastIcon.Sprite = t.Sprite;
+        PlaceToast();
         Toast.IsVisible = true;
         _toastTimer.Interval = TimeSpan.FromSeconds(t.Seconds);
-        _toastTimer.Start();
+        if (Shown) _toastTimer.Start();
+    }
+
+    /// <summary>
+    /// 토스트가 탐사선을 가리지 않게 탐사선 오른쪽에 둔다. 아이콘이 넓어 글 자리가 모자라면 아이콘을 1배로 줄이고,
+    /// 그래도 좁거나 아직 탐사선을 안 그렸으면 가운데.
+    /// </summary>
+    private void PlaceToast()
+    {
+        const double MinText = 170, Gap = 8;
+        var ship = Scene.ShipBounds;
+        double left = Math.Max(12, ship.Right + Gap);
+        double room = Scene.Bounds.Width - left - Gap;
+        for (int scale = 2; scale >= 1; scale--)
+        {
+            double text = room - ToastOverhead(scale);
+            if (ship.Width <= 0 || text < MinText) continue;
+            Toast.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+            Toast.Margin = new Thickness(left, 44, 8, 0);
+            ToastText.MaxWidth = Math.Min(320, text);
+            return;
+        }
+        ToastIcon.Scale = 2;
+        Toast.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        Toast.Margin = new Thickness(12, 44, 12, 0);
+        ToastText.MaxWidth = 320;
+    }
+
+    /// <summary>토스트에서 글을 뺀 폭: 아이콘(스프라이트마다 다르다)·간격·안쪽 여백·테두리 + 여유 4</summary>
+    private double ToastOverhead(int iconScale)
+    {
+        ToastIcon.Scale = iconScale;
+        ToastIcon.Measure(Size.Infinity);
+        return ToastIcon.DesiredSize.Width + 8 + Toast.Padding.Left + Toast.Padding.Right
+               + Toast.BorderThickness.Left + Toast.BorderThickness.Right + 4;
+    }
+
+    // ── 단축키 ──
+
+    private static void AddShortcutTip(Control control, string key) =>
+        ToolTip.SetTip(control, ToolTip.GetTip(control) is string tip && tip.Length > 0 ? $"{tip} ({key})" : L.T($"단축키 {key}", $"Shortcut {key}"));
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Handled || e.KeyModifiers != KeyModifiers.None || IsTyping()) return;
+        switch (e.Key)
+        {
+            case >= Key.D1 and <= Key.D6:
+                SelectTab((Tab)(e.Key - Key.D1));
+                break;
+            case >= Key.NumPad1 and <= Key.NumPad6:
+                SelectTab((Tab)(e.Key - Key.NumPad1));
+                break;
+            case Key.F:
+                if (App.Current.FloatingOpen) App.Current.ToggleFloating();
+                else App.Current.EnterFloating();
+                break;
+            case Key.B:
+                // 버튼과 같은 조건 (자동 부스트 중이거나 별빛이 없으면 꺼져 있다)
+                if (BoostButton.IsEnabled) _host.SetManualBoost(!_host.State.ManualBoost);
+                break;
+            case Key.R:
+                if (!_host.Scanning) ShowToast(L.T("AI 사용량을 다시 살펴볼게요", "Checking your AI usage again"), "icon_starlight", 2);
+                _ = _host.ScanNowAsync();
+                break;
+            case Key.Escape:
+                if (!_host.State.Settings.CloseToTray) return;
+                Hide();
+                break;
+            default:
+                return;
+        }
+        e.Handled = true;
+    }
+
+    /// <summary>글을 입력하거나 목록을 고르는 중이면 단축키를 쓰지 않는다</summary>
+    private bool IsTyping()
+    {
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        return focused is TextBox or ComboBox
+               || focused?.FindAncestorOfType<TextBox>() != null
+               || focused?.FindAncestorOfType<ComboBox>() != null;
     }
 }

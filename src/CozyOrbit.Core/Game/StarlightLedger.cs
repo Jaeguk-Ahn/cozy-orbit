@@ -8,7 +8,7 @@ public sealed class StarlightLedgerState
 {
     /// <summary>이 시각 이전의 사용량은 세지 않는다 (새 게임의 오늘 0시)</summary>
     public DateTimeOffset StartedAt { get; set; }
-    /// <summary>적어도 한 소스를 읽은 마지막 스캔 시각</summary>
+    /// <summary>마지막으로 장부를 맞춘 스캔 시각. 켜 둔 소스 중 하나라도 읽기에 실패하는 동안은 날짜를 넘겨 옮기지 않는다.</summary>
     public DateTimeOffset? LastScanAt { get; set; }
     /// <summary>로컬 날짜 "yyyy-MM-dd" → 이미 별빛으로 바꿔 준 가중 토큰</summary>
     public Dictionary<string, double> CreditedWeighted { get; set; } = new();
@@ -42,7 +42,7 @@ public static class StarlightLedger
         + e.CacheWrite * Balance.WeightCacheWrite
         + e.CacheRead * Balance.WeightCacheRead;
 
-    /// <summary>스캔 하한 = max(시작 시각, 마지막 성공 스캔 날의 0시, now − 7일)</summary>
+    /// <summary>스캔 하한 = max(시작 시각, LastScanAt 날의 0시, now − 7일)</summary>
     public static DateTimeOffset ScanSince(StarlightLedgerState ledger, DateTimeOffset now)
     {
         var since = ledger.StartedAt;
@@ -101,7 +101,7 @@ public static class StarlightLedger
         foreach (var day in ledger.CreditedWeighted.Keys.Where(d => string.CompareOrdinal(d, keepFrom) < 0).ToList())
             ledger.CreditedWeighted.Remove(day);
 
-        if (scans.Any(x => x.Error == null)) ledger.LastScanAt = now;
+        AdvanceLastScan(ledger, scans, now);
 
         double room = Math.Max(0, GameRules.BatteryCapacity(s) - s.Starlight);
         double added = Math.Min(room, credit);
@@ -119,5 +119,18 @@ public static class StarlightLedger
             OverflowDust = overflowDust,
             Today = today.OrderByDescending(t => t.Weighted).ToList(),
         };
+    }
+
+    /// <summary>
+    /// 스캔 하한(LastScanAt 날의 0시)을 옮긴다. 켜 둔 소스가 하나라도 실패했으면 날짜를 넘겨 옮기지 않는다 —
+    /// 그 소스의 자정 전 사용량이 하한 밖으로 밀려 복구된 뒤에도 영영 읽히지 않게 되는 걸 막는다.
+    /// 같은 날 안에서는 하한이 그대로라 옮겨도 된다.
+    /// </summary>
+    private static void AdvanceLastScan(StarlightLedgerState ledger, IReadOnlyList<ProviderScan> scans, DateTimeOffset now)
+    {
+        if (!scans.Any(x => x.Error == null)) return;
+        if (scans.Any(x => x.Error != null)
+            && (ledger.LastScanAt is not { } last || DayKey(last) != DayKey(now))) return;
+        ledger.LastScanAt = now;
     }
 }

@@ -9,7 +9,7 @@ public class AchievementsTests
     [Fact]
     public void CatalogIsWellFormed()
     {
-        Assert.InRange(Achievements.All.Count, 18, 30);
+        Assert.InRange(Achievements.All.Count, 30, 45);
         Assert.Equal(Achievements.All.Count, Achievements.All.Select(a => a.Id).Distinct().Count());
         var s = NewGame();
         foreach (var a in Achievements.All)
@@ -67,5 +67,46 @@ public class AchievementsTests
         Assert.Equal(0, Achievements.Progress(s, Achievements.Find("skins_5")!));
         foreach (var skin in Skins.All.Where(x => !x.IsFree)) s.OwnedSkins.Add(skin.Id);
         Assert.True(Achievements.IsDone(s, Achievements.Find("skins_all")!));
+    }
+
+    [Fact]
+    public void EveryChartedDestinationHasAnAtlasAchievement()
+    {
+        var s = NewGame();
+        foreach (var d in Destinations.All)
+        {
+            var atlas = Achievements.Find("atlas_" + d.Id)!;
+            Assert.Equal(d.Catalog.Count, atlas.Target());
+            Assert.False(Achievements.IsDone(s, atlas), d.Id);
+        }
+        var andromeda = Achievements.Find("atlas_andromeda")!;
+        foreach (var x in Destinations.Andromeda.Catalog) s.FoundAt[x.Id] = s.CreatedAt;
+        Assert.True(Achievements.IsDone(s, andromeda));
+        Assert.False(Achievements.IsDone(s, Achievements.Find("atlas_milky_way")!));
+    }
+
+    [Fact]
+    public void WhaleResearchAndSectorAchievementsReadStats()
+    {
+        var s = NewGame();
+        var whale = Achievements.Find("whale_5")!;
+        s.Stats.WhaleGreets = 4;
+        Assert.Equal(0.8, Achievements.Progress(s, whale), 9);
+        s.Stats.WhaleGreets = 5;
+        Assert.True(Achievements.IsDone(s, whale));
+
+        s.Stats.ResearchBought = 49;
+        Assert.False(Achievements.IsDone(s, Achievements.Find("research_50")!));
+        s.Stats.ResearchBought = 50;
+        Assert.True(Achievements.IsDone(s, Achievements.Find("research_50")!));
+
+        // 구역 완성 보상을 받으면 구역 도전과제가 찬다
+        var sectors = Achievements.Find("sectors_10")!;
+        s.DiscoveryCount = Destinations.MilkyWay.Catalog.Count;
+        Sectors.ClaimCompleted(s);
+        Assert.True(Achievements.IsDone(s, sectors));
+        var all = Achievements.Find("sectors_all")!;
+        Assert.Equal(Destinations.All.Sum(d => d.Sectors.Count), all.Target());
+        Assert.False(Achievements.IsDone(s, all));
     }
 }

@@ -31,6 +31,8 @@ public sealed class GameState
     public int DiscoveryCount { get; set; }
     /// <summary>도감 천체 id → 처음 만난 시각 (모든 목적지 공통, 새 항해에도 남는다)</summary>
     public Dictionary<string, DateTimeOffset> FoundAt { get; set; } = new();
+    /// <summary>완성 보상을 받은 구역 "항해:구역" (Sectors). 항해 번호가 들어 있어 새 항해의 구역은 다시 받는다.</summary>
+    public HashSet<string> SectorsClaimed { get; set; } = new();
 
     public StarlightLedgerState Ledger { get; set; } = new();
     /// <summary>별사탕 지갑 + 켜 둔 구간 (스킨 상점 화폐)</summary>
@@ -109,6 +111,16 @@ public sealed class GameStats
     public int ShootingStars { get; set; }
     /// <summary>쓴 별사탕 합</summary>
     public double CandySpent { get; set; }
+    /// <summary>우주 고래에게 인사한 횟수</summary>
+    public int WhaleGreets { get; set; }
+    /// <summary>완성 보상을 받은 구역 수 (모든 항해 합)</summary>
+    public int SectorsCompleted { get; set; }
+    /// <summary>게임을 켠 로컬 날짜가 하루씩 이어진 수 (PlayStreak)</summary>
+    public int PlayStreak { get; set; }
+    /// <summary>가장 길었던 연속 출석</summary>
+    public int BestPlayStreak { get; set; }
+    /// <summary>마지막으로 켜 둔 로컬 날짜 "yyyy-MM-dd" (없으면 null)</summary>
+    public string? LastPlayDay { get; set; }
 }
 
 public sealed class GameSettings
@@ -139,4 +151,6 @@ public sealed class GameSettings
     public int? FloatingY { get; set; }
     public double? FloatingWidth { get; set; }
     public double? FloatingHeight { get; set; }
+    /// <summary>첫 실행 안내를 봤거나 닫았는지 (옛 세이브엔 없어 false → 불러올 때 Onboarding.SkipIfAlreadySailing 이 정한다)</summary>
+    public bool OnboardingDone { get; set; }
 }

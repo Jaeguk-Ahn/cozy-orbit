@@ -64,6 +64,13 @@ public partial class FloatingWindow : Window
         PointerExited += (_, _) => ShowControls(false);
         PointerPressed += OnPointerPressed;
         DoubleTapped += (_, _) => App.Current.LeaveFloating();
+        // F: 큰 창으로 (큰 창의 F 와 짝)
+        KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.F || e.KeyModifiers != KeyModifiers.None) return;
+            App.Current.LeaveFloating();
+            e.Handled = true;
+        };
         Grip.PointerPressed += (_, e) =>
         {
             if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
@@ -105,20 +112,33 @@ public partial class FloatingWindow : Window
         return new ContextMenu { Items = { open, size, new Separator(), close, quit } };
     }
 
-    /// <summary>기억한 위치가 지금 화면 안이면 그대로, 아니면 주 모니터 작업 영역 오른쪽 아래</summary>
+    /// <summary>
+    /// 기억한 위치·크기를 가장 많이 겹치는 화면의 작업 영역 안으로 끌어다 놓는다 (크면 줄인다).
+    /// 어느 화면과도 겹치지 않으면 (모니터가 빠졌으면) 주 모니터 작업 영역 오른쪽 아래.
+    /// </summary>
     private void PlaceOnScreen(int? savedX, int? savedY)
     {
-        if (savedX is int x && savedY is int y && Screens.ScreenFromPoint(new PixelPoint(x + 20, y + 20)) != null)
+        Avalonia.Platform.Screen? screen = null;
+        if (savedX is int x && savedY is int y)
         {
-            Position = new PixelPoint(x, y);
-            return;
+            double s0 = Screens.ScreenFromPoint(new PixelPoint(x, y))?.Scaling ?? 1;
+            var saved = new PixelRect(x, y, (int)Math.Ceiling(Width * s0), (int)Math.Ceiling(Height * s0));
+            screen = Screens.ScreenFromBounds(saved);
         }
-        if (Screens.Primary is not { } screen) return;
+        bool keep = screen != null;
+        screen ??= Screens.Primary;
+        if (screen == null) return;
+
         var area = screen.WorkingArea;
         double scaling = screen.Scaling;
-        Position = new PixelPoint(
-            area.Right - (int)Math.Ceiling(Bounds.Width * scaling) - 16,
-            area.Bottom - (int)Math.Ceiling(Bounds.Height * scaling) - 16);
+        // 작업 영역보다 크면 맞춰 줄인다 (최소 크기는 지킨다)
+        Width = Math.Max(MinWidth, Math.Min(Width, area.Width / scaling));
+        Height = Math.Max(MinHeight, Math.Min(Height, area.Height / scaling));
+        int w = (int)Math.Ceiling(Width * scaling), h = (int)Math.Ceiling(Height * scaling);
+        int maxX = Math.Max(area.X, area.Right - w), maxY = Math.Max(area.Y, area.Bottom - h);
+        Position = keep
+            ? new PixelPoint(Math.Clamp(savedX!.Value, area.X, maxX), Math.Clamp(savedY!.Value, area.Y, maxY))
+            : new PixelPoint(Math.Max(area.X, area.Right - w - 16), Math.Max(area.Y, area.Bottom - h - 16));
     }
 
     private void ShowControls(bool on)

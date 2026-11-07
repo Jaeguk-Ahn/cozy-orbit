@@ -10,6 +10,8 @@ public sealed class TickResult
     public double DistanceGained { get; set; }
     public double StardustGained { get; set; }
     public double BoostSeconds { get; set; }
+    /// <summary>자리 비움 상한(<see cref="GameRules.OfflineCap(GameState)"/>)에 걸려 진행하지 못하고 버린 초</summary>
+    public double CappedSeconds { get; set; }
     public List<DiscoveryEvent> Discoveries { get; } = new();
 
     public void Add(TickResult other)
@@ -18,6 +20,7 @@ public sealed class TickResult
         DistanceGained += other.DistanceGained;
         StardustGained += other.StardustGained;
         BoostSeconds += other.BoostSeconds;
+        CappedSeconds += other.CappedSeconds;
         Discoveries.AddRange(other.Discoveries);
     }
 }
@@ -144,10 +147,17 @@ public static class GameRules
             return new TickResult();
         }
         var cap = OfflineCap(s);
-        if (elapsed > cap) elapsed = cap;
+        double capped = 0;
+        if (elapsed > cap)
+        {
+            capped = (elapsed - cap).TotalSeconds;
+            elapsed = cap;
+        }
         // 발견 시각은 진행 중의 LastTick 을 쓰므로 실제 지금으로 맞춰 둔다 (오프라인 발견은 "돌아온 시각"으로 기록)
         s.LastTick = now;
-        return Advance(s, elapsed.TotalSeconds);
+        var result = Advance(s, elapsed.TotalSeconds);
+        result.CappedSeconds = capped;
+        return result;
     }
 
     // ── 연구 ──

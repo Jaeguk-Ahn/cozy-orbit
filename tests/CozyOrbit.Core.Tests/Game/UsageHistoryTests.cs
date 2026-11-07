@@ -125,4 +125,31 @@ public class UsageHistoryTests
         Assert.Equal(123, s.History["2026-11-06"].Tokens);
         Assert.Equal(90_000, s.History["2026-11-06"].Weighted, 9);
     }
+
+    [Fact]
+    public void SeedFillsDaysWithoutUsageButNeverOverwritesRecordedOnes()
+    {
+        var s = NewState();
+        s.Ledger.CreditedWeighted["2026-11-05"] = 50_000;
+        s.Ledger.CreditedWeighted["2026-11-07"] = 3_000_000;
+        // 별사탕만 적힌 날 (가중 토큰·별빛이 아직 없다)
+        s.History["2026-11-05"] = new DayUsage { Candy = 2.5 };
+        // 이미 기록된 날 — 장부가 더 커도 그대로
+        s.History["2026-11-07"] = new DayUsage { Tokens = 10, Weighted = 1_000, Starlight = 3, Candy = 1 };
+
+        UsageHistory.SeedFromLedger(s);
+        UsageHistory.SeedFromLedger(s);
+
+        var candyDay = s.History["2026-11-05"];
+        Assert.Equal(50_000, candyDay.Weighted, 9);
+        Assert.Equal(Balance.DailyStarlight(50_000), candyDay.Starlight, 9);
+        Assert.Equal(2.5, candyDay.Candy, 9);
+        Assert.Equal(0, candyDay.Tokens);
+
+        var recorded = s.History["2026-11-07"];
+        Assert.Equal(10, recorded.Tokens);
+        Assert.Equal(1_000, recorded.Weighted, 9);
+        Assert.Equal(3, recorded.Starlight, 9);
+        Assert.Equal(1, recorded.Candy, 9);
+    }
 }

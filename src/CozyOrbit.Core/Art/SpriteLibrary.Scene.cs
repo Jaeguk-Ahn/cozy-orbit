@@ -129,5 +129,17 @@ public static partial class SpriteLibrary
             ".....",
             "y...y",
         ]);
+
+        // 졸고 있는 햄찌 머리 위로 둥실 떠오르는 Z
+        Add(set, "fx_zzz", 1.0, Base,
+        [
+            "kkkkkkk",
+            "kwllllk",
+            "kkkklkk",
+            ".kklkk.",
+            "kklkk..",
+            "klllluk",
+            "kkkkkkk",
+        ]);
     }
 }

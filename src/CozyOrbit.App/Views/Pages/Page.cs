@@ -25,7 +25,17 @@ public abstract class Page : UserControl
         return t;
     }
 
-    protected IBrush Brush(string key) => (IBrush)this.FindResource(key)!;
+    /// <summary>
+    /// 색 리소스. 화면에 붙지 않은 페이지(생성자 안, 캐시된 숨은 탭)는 컨트롤 트리로는 못 찾으므로
+    /// 앱 리소스(App.axaml.cs 에서 넣은 팔레트 브러시)에서 찾는다 — 예전엔 여기서 InvalidCastException 으로 앱이 죽었다.
+    /// </summary>
+    protected IBrush Brush(string key)
+    {
+        if (this.TryFindResource(key, ActualThemeVariant, out var v) && v is IBrush b) return b;
+        var app = Application.Current;
+        if (app != null && app.TryFindResource(key, app.ActualThemeVariant, out v) && v is IBrush ab) return ab;
+        return Brushes.Transparent;
+    }
 
     protected static Border Card(Control child) => new() { Classes = { "card" }, Child = child };
 

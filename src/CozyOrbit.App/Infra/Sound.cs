@@ -54,6 +54,8 @@ public static class Sound
         if (!s.SoundEnabled)
         {
             StopMusic();
+            // 장치를 못 열었던 경우 다음에 켤 때 다시 시도 (헤드폰을 꽂았을 수도)
+            if (_context == 0) { _initTried = false; Error = null; }
             return;
         }
         if (!EnsureDevice()) return;
@@ -105,6 +107,7 @@ public static class Sound
         {
             Error = L.T("소리 장치를 열지 못했어요.", "Couldn't open the sound device.");
             AppLog.Warn($"소리 장치를 열지 못함: {ex.Message}");
+            if (_context != 0) { OpenAl.alcMakeContextCurrent(0); OpenAl.alcDestroyContext(_context); }
             if (_device != 0) OpenAl.alcCloseDevice(_device);
             _device = _context = 0;
             return false;

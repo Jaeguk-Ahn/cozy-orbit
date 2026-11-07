@@ -54,6 +54,14 @@ public static class Balance
     public const double DiscoveryBaseReward = 20;
     public const double DiscoveryRewardPower = 2;
 
+    // ── 구역 완성 (§6) — 우리 은하 중반(#24~#48)의 긴 발견 간격 사이에 한 번씩 반가운 보상 ──
+    /// <summary>구역 완성 별가루 = max(구역 마지막 발견 보상 × 이것, 부스트 없는 별가루 수입 × SectorRewardSeconds)</summary>
+    public const double SectorRewardDiscoveries = 3;
+    /// <summary>수입이 발견 보상보다 훨씬 커지는 후반에도 의미 있게: 부스트 없는 수입 2시간치</summary>
+    public const double SectorRewardSeconds = 2 * 3600;
+    /// <summary>구역 완성 별사탕</summary>
+    public const double SectorCandy = 10;
+
     // ── 새 항해 (§11) ──
     /// <summary>끝낸 항해마다 속도·별가루에 곱해지는 영구 배율</summary>
     public const double VoyageBonus = 1.6;

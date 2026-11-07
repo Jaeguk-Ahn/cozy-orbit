@@ -36,10 +36,18 @@ public static class Achievements
         Discover(30, "별 수집가", "Star Collector", 40),
         Discover(60, "우주 박물학자", "Cosmic Naturalist", 80),
         Discover(120, "도감 박사", "Atlas Doctor", 150),
-        new("atlas_milky_way", "dest_milky_way", "우리 은하 도감 완성", "Milky Way Atlas",
-            "우리 은하의 천체를 모두 만나기", "Find every object in the Milky Way",
-            s => Destinations.MilkyWay.Catalog.Count(d => s.FoundAt.ContainsKey(d.Id)),
-            () => Destinations.MilkyWay.Catalog.Count, 100, Fmt.Compact),
+        Atlas(Destinations.MilkyWay, 100),
+        Atlas(Destinations.Andromeda, 60),
+        Atlas(Destinations.Magellanic, 60),
+        Atlas(Destinations.VirgoCluster, 60),
+        Atlas(Destinations.DeepField, 60),
+        Atlas(Destinations.CosmicWeb, 60),
+        new("sectors_10", "icon_goal", "구역 탐험가", "Sector Explorer",
+            "구역 10곳의 천체를 모두 만나기", "Complete 10 sectors",
+            s => s.Stats.SectorsCompleted, () => 10, 40, Fmt.Compact),
+        new("sectors_all", "icon_goal", "지도 위의 모든 곳", "Every Corner of the Map",
+            "정해진 목적지의 구역을 모두 채우기", "Complete every sector of every charted destination",
+            s => s.Stats.SectorsCompleted, () => Destinations.All.Sum(d => d.Sectors.Count), 150, Fmt.Compact),
 
         // ── 항해 ──
         new("voyage_first", "icon_voyage", "새 항해", "New Voyage",
@@ -58,6 +66,10 @@ public static class Achievements
         Candy("candy_100", 100, "달콤한 시작", "Sweet Start", 20),
         Candy("candy_1000", 1000, "사탕 부자", "Candy Tycoon", 80),
 
+        // ── 연구 (산 레벨 합, 모든 항해) ──
+        Research("research_50", 50, "꼬마 연구원", "Junior Researcher", 20),
+        Research("research_300", 300, "햄찌 박사님", "Professor Hamster", 80),
+
         // ── 햄찌·우주 이벤트 ──
         new("pets_100", "icon_crew", "쓰담쓰담", "Pat Pat",
             "햄찌를 100번 쓰다듬기", "Pet the hamsters 100 times",
@@ -65,6 +77,12 @@ public static class Achievements
         new("shooting_stars_25", "fx_shooting_star", "소원 25개", "Twenty-Five Wishes",
             "별똥별 25개 잡기", "Catch 25 shooting stars",
             s => s.Stats.ShootingStars, () => 25, 30, Fmt.Compact),
+        new("whale_5", "obj_whale_cloud", "고래 친구", "Whale Friend",
+            "우주 고래에게 5번 인사하기", "Wave to the space whale 5 times",
+            s => s.Stats.WhaleGreets, () => 5, 20, Fmt.Compact),
+        new("whale_30", "obj_whale_cloud", "고래와 단짝", "Whale Buddy",
+            "우주 고래에게 30번 인사하기", "Wave to the space whale 30 times",
+            s => s.Stats.WhaleGreets, () => 30, 60, Fmt.Compact),
 
         // ── 꾸미기 ──
         new("skins_5", "icon_shop", "멋쟁이", "Fashionista",
@@ -80,6 +98,8 @@ public static class Achievements
         // ── 함께한 시간 ──
         Play("play_24h", 24 * 3600, "24시간", "24 hours", "하루 꼬박", "A Whole Day", 30),
         Play("play_7d", 7 * 24 * 3600, "7일", "7 days", "한 주의 친구", "Friend of the Week", 100),
+        Streak("streak_7", 7, "일주일 출석", "Week Streak", 40),
+        Streak("streak_30", 30, "한 달 내내", "Month Streak", 120),
     };
 
     public static AchievementDef? Find(string id) => All.FirstOrDefault(a => a.Id == id);
@@ -121,6 +141,23 @@ public static class Achievements
         new($"discoveries_{target}", "icon_book", ko, en,
             $"천체 {target}개 만나기", $"Make {target} discoveries",
             s => s.Stats.Discoveries, () => target, reward, Fmt.Compact);
+
+    private static AchievementDef Atlas(DestinationDef d, int reward) =>
+        new("atlas_" + d.Id, d.Sprite, $"{d.NameKo} 도감 완성", $"{d.NameEn} Atlas",
+            $"{d.NameKo}의 천체를 모두 만나기", $"Find every object in the {d.NameEn}",
+            s => d.Catalog.Count(x => s.FoundAt.ContainsKey(x.Id)), () => d.Catalog.Count, reward, Fmt.Compact);
+
+    private static AchievementDef Research(string id, int target, string ko, string en, int reward) =>
+        new(id, "icon_lab", ko, en,
+            $"연구 레벨을 모두 합쳐 {target}번 올리기", $"Buy {target} research levels across all voyages",
+            s => s.Stats.ResearchBought, () => target, reward, Fmt.Compact);
+
+    private static AchievementDef Streak(string id, int days, string ko, string en, int reward) =>
+        new(id, "icon_goal", ko, en,
+            $"{days}일 연속으로 햄찌들 만나러 오기", $"Visit the hamsters {days} days in a row",
+            s => s.Stats.BestPlayStreak, () => days, reward, Days);
+
+    private static string Days(double days) => L.T($"{Fmt.Compact(days)}일", $"{Fmt.Compact(days)}d");
 
     private static AchievementDef Tokens(string id, double target, string ko, string en, int reward) =>
         new(id, "icon_starlight", ko, en,

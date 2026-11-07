@@ -16,6 +16,8 @@ namespace CozyOrbit.App.Views;
 /// 우주 장면: 테마 하늘·장식 + 별 3겹 시차 스크롤 + 탐사선(스킨) + 다가오는/지나가는 천체 + 부스트 반짝이
 /// + 우주 이벤트(별똥별·유성우·고래). 아래에는 연구소(소품 + 돌아다니는 햄찌 크루).
 /// 햄찌를 누르면 쓰다듬기 반응, 별똥별을 누르면 별가루. ShowEventBubbles 면 발견·지급 알림을 말풍선으로 (플로팅 창).
+/// 밤(지역 시각 22~6시, DayNight)엔 연구소가 푸르게 어둑해지고 등불이 번지며, 햄찌는 덜 걷고 가끔 존다 (누르면 깬다).
+/// 별빛이 들어오면(Credited) 위에서 탐사선으로 반짝이가 쏟아진다. 말풍선은 탐사선을 가리지 않게 비켜선다.
 /// 배율은 높이로 정한다 (플로팅 창처럼 작으면 2, 큰 창이면 3). 좌표는 "도트 단위" × 정수 배율.
 /// </summary>
 public sealed class SceneView : Control
@@ -25,12 +27,20 @@ public sealed class SceneView : Control
     /// <summary>발견·별사탕 같은 알림을 선장 말풍선으로 보여 줄지 (큰 창은 토스트가 있으므로 끈다)</summary>
     public bool ShowEventBubbles { get; set; }
 
+    /// <summary>탐사선이 그려지는 칸 (px, 출렁임 가운데 기준). 첫 그리기 전엔 비어 있다 — 큰 창 토스트가 피해 갈 때 쓴다.</summary>
+    public Rect ShipBounds { get; private set; }
+
+    /// <summary>밤낮을 정하는 지역 시각 (헤드리스 확인 도구가 바꿔 끼운다)</summary>
+    internal Func<DateTime> LocalClock { get; set; } = () => DateTime.Now;
+
     private const int LabHeightUnits = 22;
     private const double FrameInterval = 1.0 / 30;
     /// <summary>햄찌 걷는 속도 (도트 단위/초)</summary>
     private const double WalkSpeed = 7;
     /// <summary>걸음 프레임 하나의 길이</summary>
     private const double StepSeconds = 0.16;
+    /// <summary>별빛이 들어올 때 반짝이 소나기 길이 (초)</summary>
+    private const double CreditShowerSeconds = 1.5;
 
     private readonly DispatcherTimer _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -47,6 +57,12 @@ public sealed class SceneView : Control
     private double _visualSpeed = 8;
     private double _sparkleDue;
     private int _captainIndex;
+    /// <summary>밤 정도 0..1 (DayNight) — 진행할 때마다 지역 시각으로 다시 잰다</summary>
+    private double _night;
+    // 별빛 도착: 위에서 탐사선으로 빨려 드는 반짝이
+    private readonly List<Mote> _motes = new();
+    private double _creditedAt = double.NegativeInfinity;
+    private double _moteDue;
 
     // 지나가는 천체 (발견 직후 왼쪽으로 빠져나간다)
     private int _seenDiscoveries = -1;
@@ -58,8 +74,10 @@ public sealed class SceneView : Control
 
     private readonly record struct Star(double X, double Y, int Layer, double Phase);
     private sealed class Particle { public double X, Y, Age; }
-    /// <summary>위로 둥실 떠오르는 작은 그림 (하트·음표·반짝이)</summary>
-    private sealed class Floater { public required string Sprite; public double X, Y, Age, Life = 1.2, Drift; }
+    /// <summary>탐사선으로 날아드는 별빛 한 알 (출발점 → 탐사선 가운데)</summary>
+    private sealed class Mote { public double X0, Y0, Age, Life; }
+    /// <summary>위로 둥실 떠오르는 작은 그림 (하트·음표·반짝이·Z)</summary>
+    private sealed class Floater { public required string Sprite; public double X, Y, Age, Life = 1.2, Drift, Rise = 14; }
 
     /// <summary>돌아다니는 햄찌 하나. X·Target 은 제자리(칸 가운데)로부터의 거리 (도트 단위).</summary>
     private sealed class Walker
@@ -67,8 +85,13 @@ public sealed class SceneView : Control
         public double X, Target, Wait, StepClock, Phase;
         /// <summary>쓰다듬은 시각 (높이 폴짝)</summary>
         public double PettedAt = double.NegativeInfinity;
+        /// <summary>남은 조는 시간 (밤에만, 초). 쓰다듬으면 깬다.</summary>
+        public double DozeLeft;
+        /// <summary>다음 Z 가 떠오를 때까지</summary>
+        public double ZzzDue;
         public bool Left;
-        public bool Walking => Wait <= 0 && Math.Abs(Target - X) > 1e-6;
+        public bool Dozing => DozeLeft > 0;
+        public bool Walking => !Dozing && Wait <= 0 && Math.Abs(Target - X) > 1e-6;
     }
 
     private static readonly (string Ko, string En)[] PetLines =
@@ -76,6 +99,12 @@ public sealed class SceneView : Control
         ("찍!", "Squeak!"), ("간질간질~", "Tickles~"), ("도토리 최고!", "Acorns rule!"), ("오늘도 같이 힘내요!", "Let's do our best today!"),
         ("해바라기씨 주세요", "Sunflower seeds, please"), ("우주 최고 연구소!", "Best lab in space!"), ("헤헤", "Hehe"),
         ("별이 반짝반짝", "Twinkle twinkle"), ("일 열심히 하고 있어요?", "Working hard?"), ("쉬엄쉬엄 해요~", "Take it easy~"),
+    ];
+
+    private static readonly (string Ko, string En)[] WakeLines =
+    [
+        ("하암… 깼어요!", "Yawn… I'm up!"), ("쿨쿨… 앗, 안녕하세요!", "Zzz… oh, hi!"), ("꿈에서 해바라기씨 먹었어요", "I dreamt of sunflower seeds"),
+        ("조금만 더 잘래요…", "Five more minutes…"), ("별 꿈 꿨어요", "I dreamt of stars"),
     ];
 
     public SceneView()
@@ -96,6 +125,7 @@ public sealed class SceneView : Control
             host.Discovered += OnDiscovered;
             host.Credited += OnCredited;
             host.Returned += OnReturned;
+            host.Noticed += OnNoticed;
             host.VoyageReady += OnVoyageReady;
             host.VoyageStarted += OnVoyageStarted;
         }
@@ -109,6 +139,7 @@ public sealed class SceneView : Control
             host.Discovered -= OnDiscovered;
             host.Credited -= OnCredited;
             host.Returned -= OnReturned;
+            host.Noticed -= OnNoticed;
             host.VoyageReady -= OnVoyageReady;
             host.VoyageStarted -= OnVoyageStarted;
         }
@@ -131,17 +162,39 @@ public sealed class SceneView : Control
 
     private void OnCredited(CreditResult c, double candy)
     {
+        // 큰 창·플로팅 모두: 위에서 탐사선으로 별빛이 쏟아져 들어온다
+        if (c.TotalStarlight > 0 || candy > 0) StartCreditShower();
         if (candy >= 0.1) Notify(L.T($"별사탕 +{Fmt.Number(candy, 1)}", $"Star candy +{Fmt.Number(candy, 1)}"), "icon_candy");
         else if (c.StarlightAdded > 0) Notify(L.T($"별빛 +{Fmt.Duration(c.StarlightAdded)}", $"Starlight +{Fmt.Duration(c.StarlightAdded)}"), "icon_starlight");
     }
 
-    private void OnReturned(TickResult r) =>
+    private void StartCreditShower()
+    {
+        _creditedAt = _clock.Elapsed.TotalSeconds;
+        _moteDue = 0;
+    }
+
+    private void OnReturned(TickResult r)
+    {
         Notify(L.T($"다녀오셨어요! {Fmt.Steps(r.DistanceGained)} 왔어요", $"Welcome back! We flew {Fmt.Steps(r.DistanceGained)}"),
             r.Discoveries.Count > 0 ? r.Discoveries[^1].Sprite : null);
+        // 자리 비움 상한에 걸렸으면: 실제로 난 시간 + (더 늘릴 수 있으면) 침낭 연구 귀띔
+        if (r.CappedSeconds >= 60 && Host is { } host)
+        {
+            var bunk = Upgrades.Get(Upgrades.Bunk);
+            bool more = !bunk.IsMaxed(host.State.Level(Upgrades.Bunk));
+            Notify(more
+                    ? L.T($"{Fmt.Duration(r.Seconds)}만 날았어요 · 포근한 침낭으로 더 길게", $"Flew only {Fmt.Duration(r.Seconds)} · a Cozy Sleeping Bag helps")
+                    : L.T($"{Fmt.Duration(r.Seconds)}만 날았어요", $"Flew only {Fmt.Duration(r.Seconds)}"),
+                "icon_bunk");
+        }
+    }
 
     private void OnVoyageReady() => Notify(L.T("도감 완성! 새 항해를 떠날 수 있어요", "Atlas complete! A new voyage awaits"), "icon_voyage");
 
     private void OnVoyageStarted(DestinationDef d, double candy) => Notify(L.T($"{d.Name}(으)로 출발!", $"Off to {d.Name}!"), d.Sprite);
+
+    private void OnNoticed(string text, string sprite) => Notify(text, sprite);
 
     // ── 진행 ──
 
@@ -153,6 +206,7 @@ public sealed class SceneView : Control
         double t = _clock.Elapsed.TotalSeconds;
         double dt = Math.Clamp(t - _lastT, 0, 0.25);
         _lastT = t;
+        _night = DayNight.Night(LocalClock());
 
         var s = Host?.State;
         bool boosting = s != null && GameRules.IsBoosting(s);
@@ -186,10 +240,29 @@ public sealed class SceneView : Control
         foreach (var f in _floaters)
         {
             f.Age += dt;
-            f.Y -= 14 * scale * dt;
+            f.Y -= f.Rise * scale * dt;
             f.X += f.Drift * scale * dt;
         }
         _floaters.RemoveAll(f => f.Age >= f.Life);
+
+        // 별빛 도착: 앞쪽 동안 위에서 반짝이를 흩뿌리고, 하나하나 탐사선으로 빨려 든다
+        if (t - _creditedAt < CreditShowerSeconds - 0.4)
+        {
+            var ship = ShipCenter(scale);
+            _moteDue -= dt;
+            while (_moteDue <= 0)
+            {
+                _moteDue += 0.045;
+                _motes.Add(new Mote
+                {
+                    X0 = ship.X + (_rng.NextDouble() * 2 - 1) * 24 * scale,
+                    Y0 = _rng.NextDouble() * Math.Max(scale, ship.Y - 14 * scale),
+                    Life = 0.45 + _rng.NextDouble() * 0.3,
+                });
+            }
+        }
+        foreach (var m in _motes) m.Age += dt;
+        _motes.RemoveAll(m => m.Age >= m.Life);
 
         // 발견이 일어나면 다가오던 천체를 "지나가는" 천체로 넘긴다 (새 항해로 번호가 처음부터면 넘기지 않는다)
         if (s != null)
@@ -218,6 +291,9 @@ public sealed class SceneView : Control
 
     private double SpaceHeight(int scale) => Bounds.Height - LabHeightUnits * scale;
     private double ProbeX(int scale) => Math.Round(Bounds.Width * 0.22);
+    /// <summary>탐사선 가운데 (그리기 전이면 대략의 자리)</summary>
+    private Point ShipCenter(int scale) =>
+        ShipBounds.Width > 0 ? ShipBounds.Center : new Point(ProbeX(scale) + 8 * scale, SpaceHeight(scale) / 2);
     private double ObjectY(int index, int scale) =>
         Math.Round(SpaceHeight(scale) / 2 + (index % 2 == 0 ? -1 : 1) * 14 * scale);
 
@@ -231,32 +307,63 @@ public sealed class SceneView : Control
         return (count, spacing, startX, count / 2);
     }
 
-    /// <summary>햄찌마다 잠깐 쉬었다가 제자리 근처의 새 지점으로 걸어간다</summary>
+    /// <summary>햄찌마다 잠깐 쉬었다가 제자리 근처의 새 지점으로 걸어간다. 밤엔 덜 걷고 가끔 존다.</summary>
     private void WalkCrew(GameState? s, int scale, double dt, double t)
     {
         var (count, spacing, _, _) = LabSlots(s, scale);
+        bool sleepy = DayNight.IsSleepy(_night);
         while (_walkers.Count < count)
-            _walkers.Add(new Walker { Wait = 0.5 + _rng.NextDouble() * 3, Phase = _rng.NextDouble() * 10, Left = _rng.Next(2) == 0 });
+        {
+            var walker = new Walker { Wait = 0.5 + _rng.NextDouble() * 3, Phase = _rng.NextDouble() * 10, Left = _rng.Next(2) == 0 };
+            // 밤에 켜면 몇몇은 벌써 꾸벅꾸벅
+            if (sleepy && _rng.Next(2) == 0) walker.DozeLeft = 6 + _rng.NextDouble() * 14;
+            _walkers.Add(walker);
+        }
         if (_walkers.Count > count) _walkers.RemoveRange(count, _walkers.Count - count);
 
         // 혼자면 바닥 가운데를 넓게, 여럿이면 제 칸 안에서만 (서로 겹치지 않게)
         double range = count == 1 ? Math.Min(48, Bounds.Width / scale / 2 - 14) : Math.Min(26, spacing / scale / 2 - 9);
         range = Math.Max(0, range);
-        foreach (var w in _walkers)
+        for (int i = 0; i < _walkers.Count; i++)
         {
+            var w = _walkers[i];
+            if (w.Dozing)
+            {
+                w.DozeLeft -= dt;
+                w.ZzzDue -= dt;
+                if (w.ZzzDue <= 0 && i < _hamsterRects.Count)
+                {
+                    w.ZzzDue = 1.3 + _rng.NextDouble() * 0.6;
+                    var r = _hamsterRects[i];
+                    double side = w.Left ? r.X + 2 * scale : r.Right - 7 * scale;
+                    _floaters.Add(new Floater { Sprite = "fx_zzz", X = side, Y = r.Y - scale, Rise = 5, Drift = w.Left ? -2 : 2, Life = 2.2 });
+                }
+                if (!w.Dozing) w.Wait = 1 + _rng.NextDouble() * 2;
+                continue;
+            }
             if (w.Wait > 0)
             {
                 w.Wait -= dt;
-                if (w.Wait <= 0) w.Target = Math.Round((_rng.NextDouble() * 2 - 1) * range);
+                if (w.Wait <= 0)
+                {
+                    if (sleepy && _rng.Next(2) == 0)
+                    {
+                        // 걷는 대신 그 자리에서 꾸벅
+                        w.DozeLeft = 10 + _rng.NextDouble() * 16;
+                        w.ZzzDue = 0.6;
+                        continue;
+                    }
+                    w.Target = Math.Round((_rng.NextDouble() * 2 - 1) * range);
+                }
                 continue;
             }
             double gap = w.Target - w.X;
-            double step = WalkSpeed * dt;
+            double step = WalkSpeed * (sleepy ? 0.6 : 1) * dt;
             if (Math.Abs(gap) <= step)
             {
                 w.X = w.Target;
                 w.StepClock = 0;
-                w.Wait = 1.5 + _rng.NextDouble() * 4;
+                w.Wait = (1.5 + _rng.NextDouble() * 4) * (sleepy ? 2 : 1);
             }
             else
             {
@@ -291,6 +398,13 @@ public sealed class SceneView : Control
         }
         if (_events.HitWhale(p, scale))
         {
+            // 기록은 지나가는 고래 한 마리에 한 번만 (인사 반응·소리는 매번)
+            if (_events.CurrentWhale is { Greeted: false } whale)
+            {
+                whale.Greeted = true;
+                host.GreetWhale();
+            }
+            Infra.Sound.Play(Core.Audio.SoundId.Whale);
             _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T("뿌우~ 안녕!", "Fwoo~ hello!"), At = p, Duration = 2 });
             _floaters.Add(new Floater { Sprite = "fx_note", X = p.X, Y = p.Y, Drift = 3 });
             e.Handled = true;
@@ -300,13 +414,17 @@ public sealed class SceneView : Control
         {
             if (!_hamsterRects[i].Inflate(2 * scale).Contains(p)) continue;
             var w = _walkers[i];
+            // 졸던 햄찌는 깨어나며 잠꼬대 한마디
+            bool woke = w.Dozing;
+            w.DozeLeft = 0;
             w.Target = w.X;
-            w.Wait = Math.Max(w.Wait, 1.4);
+            // 깨운 햄찌는 잠깐은 깨어 있다 (바로 다시 꾸벅하지 않게)
+            w.Wait = Math.Max(w.Wait, woke ? 6 : 1.4);
             w.PettedAt = t;
             var r = _hamsterRects[i];
             _floaters.Add(new Floater { Sprite = "fx_heart", X = r.X + r.Width / 2 - 3 * scale, Y = r.Y, Drift = _rng.NextDouble() * 6 - 3 });
             if (_rng.Next(3) == 0) _floaters.Add(new Floater { Sprite = "fx_note", X = r.X + r.Width / 2 + 2 * scale, Y = r.Y + 2 * scale, Drift = 4, Life = 1.4 });
-            var line = PetLines[_rng.Next(PetLines.Length)];
+            var line = woke ? WakeLines[_rng.Next(WakeLines.Length)] : PetLines[_rng.Next(PetLines.Length)];
             _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T(line.Ko, line.En), Hamster = i, Duration = 2.2 });
             host.PetHamster();
             Infra.Sound.Play(Core.Audio.SoundId.Squeak);
@@ -346,6 +464,9 @@ public sealed class SceneView : Control
             double x = Frac(d.X - _scroll * d.Parallax * scale / (w + dw)) * (w + dw) - dw;
             SpriteCache.Draw(dc, d.Sprite, SpriteCache.FrameAt(d.Sprite, t), Math.Round(x / scale) * scale, Math.Round(d.Y * spaceH / scale) * scale, scale);
         }
+        // 밤: 하늘을 살짝 푸르게 눌러 별이 더 또렷하게 (고래·별은 그 위에 그대로)
+        if (_night > 0)
+            using (dc.PushOpacity(0.28 * _night)) dc.FillRectangle(SkinArt.Solid(Palette.NightShade), new Rect(0, 0, w, spaceH));
         _events.DrawBehind(dc, t, scale);
 
         // 별 (먼 것부터)
@@ -399,9 +520,15 @@ public sealed class SceneView : Control
             SpriteCache.Draw(dc, "sparkle", frame, Math.Round(p.X / scale) * scale, Math.Round(p.Y / scale) * scale, scale, 1 - p.Age / 0.9);
         }
 
+        // 별빛 도착: 탐사선 위로 옅은 빛기둥 + 빨려 드는 반짝이 (탐사선 뒤로 사라진다)
+        if (t - _creditedAt < CreditShowerSeconds) DrawCreditShower(dc, t - _creditedAt, scale);
+
         bool boosting = s != null && GameRules.IsBoosting(s);
         string ship = boosting ? shipBoost : shipNormal;
+        var drawn = SpriteLibrary.Get(ship);
         SpriteCache.Draw(dc, ship, SpriteCache.FrameAt(ship, t), probeX, Math.Round(probeY / scale) * scale, scale);
+        ShipBounds = new Rect(probeX, Math.Round((spaceH - probe.Height * scale) / 2 / scale) * scale,
+            Math.Max(probe.Width, drawn.Width) * scale, probe.Height * scale);
 
         DrawLab(dc, s, theme, scale, w, h, spaceH, t);
 
@@ -418,7 +545,28 @@ public sealed class SceneView : Control
             var anchor = index >= 0 && index < _hamsterRects.Count
                 ? new Point(_hamsterRects[index].X + _hamsterRects[index].Width / 2, _hamsterRects[index].Y - scale)
                 : bubble.At;
-            _bubbles.Draw(dc, anchor, w, scale);
+            // 탐사선은 가리지 않는다 (출렁임만큼 여유를 두고)
+            _bubbles.Draw(dc, anchor, w, scale, ShipBounds.Inflate(2 * scale));
+        }
+    }
+
+    private void DrawCreditShower(DrawingContext dc, double since, int scale)
+    {
+        var c = ShipCenter(scale);
+        var glow = SkinArt.Solid(Palette.Starlight);
+        double a = Math.Sin(Math.PI * Math.Clamp(since / CreditShowerSeconds, 0, 1));
+        double cx = Math.Round(c.X / scale) * scale;
+        double bottom = Math.Round(c.Y / scale) * scale;
+        using (dc.PushOpacity(0.10 * a)) dc.FillRectangle(glow, new Rect(cx - 5 * scale, 0, 10 * scale, bottom));
+        using (dc.PushOpacity(0.14 * a)) dc.FillRectangle(glow, new Rect(cx - 2 * scale, 0, 4 * scale, bottom));
+        foreach (var m in _motes)
+        {
+            double u = m.Age / m.Life;
+            double e = u * u; // 처음엔 둥실, 갈수록 빨리 빨려 든다
+            double x = m.X0 + (c.X - m.X0) * e - 2 * scale;
+            double y = m.Y0 + (c.Y - m.Y0) * e - 2 * scale;
+            int frame = u < 0.8 ? (int)(m.Age * 12) & 1 : 2;
+            SpriteCache.Draw(dc, "sparkle", frame, Math.Round(x / scale) * scale, Math.Round(y / scale) * scale, scale, Math.Min(1, u * 5));
         }
     }
 
@@ -482,6 +630,9 @@ public sealed class SceneView : Control
             dc.FillRectangle(plank, new Rect(px, floorTop + 2 * scale + ((int)(px / scale) % 2) * scale, scale, 2 * scale));
 
         if (s != null) LabDecorRenderer.Draw(dc, s, theme, scale, w, top, floorTop, t);
+        // 밤: 벽·바닥·소품을 푸르게 낮춘다 (햄찌는 그 위에 — 등불 아래에서 또렷하게)
+        if (_night > 0)
+            using (dc.PushOpacity(0.36 * _night)) dc.FillRectangle(SkinArt.Solid(Palette.NightShade), new Rect(0, top + scale, w, h - top - scale));
 
         var (count, spacing, startX, captain) = LabSlots(s, scale);
         _captainIndex = captain;
@@ -503,6 +654,12 @@ public sealed class SceneView : Control
                 frame = SkinArt.FrameBlink;
                 lift = Math.Round(Math.Sin(sincePet / 0.6 * Math.PI) * 6);
             }
+            else if (walker.Dozing)
+            {
+                // 꾸벅꾸벅: 눈 감은 채(깜빡 프레임) 가만히
+                frame = SkinArt.FrameBlink;
+                lift = 0;
+            }
             else if (walker.Walking)
             {
                 // 걸음마다 한 칸 통 — 발을 번갈아 내딛는다
@@ -522,6 +679,39 @@ public sealed class SceneView : Control
             double y = floorTop - 16 * scale + scale - lift * scale;
             _hamsterRects.Add(new Rect(x, y, 16 * scale, 16 * scale));
             SkinArt.DrawHamster(dc, fur, isCaptain ? outfit : null, frame, x, y, scale, t, walker.Left);
+        }
+        if (_night > 0) DrawNightLamps(dc, theme, scale, w, h, top, floorTop);
+    }
+
+    /// <summary>
+    /// 밤의 등불: 연구소 전체를 한 겹 더 살짝 낮춘 뒤, 작은 등마다 따뜻한 빛 무리 + 아래로 계단처럼 퍼지는 빛 + 바닥의 빛 웅덩이.
+    /// 등 자리는 DrawLab 의 벽 규칙과 같다 (창 x = 10 + 46k, 등 x = 창 + 26).
+    /// </summary>
+    private void DrawNightLamps(DrawingContext dc, SceneTheme theme, int scale, double w, double h, double top, double floorTop)
+    {
+        double n = _night;
+        var glow = SkinArt.Solid(Palette.LampGlow);
+        using (dc.PushOpacity(0.10 * n)) dc.FillRectangle(SkinArt.Solid(Palette.NightShade), new Rect(0, top + scale, w, h - top - scale));
+        double coneTop = top + 6 * scale;
+        int rows = Math.Max(1, (int)Math.Ceiling((floorTop - coneTop) / (2 * scale)));
+        for (double wx = 10 * scale; wx < w - 12 * scale; wx += 46 * scale)
+        {
+            double lx = wx + 26 * scale;
+            if (lx >= w - 4 * scale) continue;
+            using (dc.PushOpacity(0.40 * n)) dc.FillRectangle(glow, new Rect(lx - 2 * scale, top + 3 * scale, 5 * scale, 4 * scale));
+            for (int k = 0; k < rows; k++)
+            {
+                double y = coneTop + k * 2 * scale;
+                double rowH = Math.Min(2 * scale, floorTop - y);
+                if (rowH <= 0) break;
+                double half = (1 + k) * scale;
+                using (dc.PushOpacity(0.30 * n * (1 - 0.55 * k / rows)))
+                    dc.FillRectangle(glow, new Rect(lx - scale - half, y, 3 * scale + 2 * half, rowH));
+            }
+            double pool = (1 + rows) * scale;
+            using (dc.PushOpacity(0.30 * n)) dc.FillRectangle(glow, new Rect(lx - scale - pool, floorTop, 3 * scale + 2 * pool, scale));
+            // 등 자체는 그늘 없이 환하게
+            dc.FillRectangle(SkinArt.Solid(theme.Lamp), new Rect(lx - scale, top + 4 * scale, 3 * scale, 2 * scale));
         }
     }
 

@@ -367,7 +367,10 @@ public sealed class UpdateInstaller
     {
         if (!waitForOldExit())
         {
+            // 파일은 그대로 둔다. 옛 앱은 준비 신호를 보고 이미 끝나는 중일 수 있어 설치된 것을 다시 띄운다 —
+            // 아직 살아 있으면 새로 뜬 쪽이 단일 실행 잠금에 막혀 그 창을 부르고 끝나므로 해가 없다 (앱이 사라지지 않게)
             AppLog.Warn("업데이트 마무리: 옛 앱이 끝나지 않아 그만둬요 (다음에 다시 받아요)");
+            relaunch(installed);
             return false;
         }
         bool mac = kind == Kind.MacBundle;

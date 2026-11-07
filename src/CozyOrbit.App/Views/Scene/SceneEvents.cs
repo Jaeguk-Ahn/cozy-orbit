@@ -23,6 +23,8 @@ public sealed class SceneEvents
     public sealed class Whale
     {
         public double X, Y, Speed;
+        /// <summary>이번에 지나가는 동안 이미 인사했는지 (도전과제 기록은 한 번만)</summary>
+        public bool Greeted;
     }
 
     private const double ShowerSeconds = 25;

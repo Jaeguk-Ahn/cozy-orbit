@@ -38,6 +38,8 @@ public sealed class SaveStore
             state.Daily ??= new();
             state.Daily.Goals ??= new();
             state.Achievements ??= new();
+            // 구역 완성 이전 세이브
+            state.SectorsClaimed ??= new();
             state.History ??= new();
             state.Stats ??= new();
             state.Settings ??= new();

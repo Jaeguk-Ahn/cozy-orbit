@@ -39,13 +39,19 @@ public static class UsageHistory
             s.History.Remove(day);
     }
 
-    /// <summary>기록이 없는 날을 별빛 장부로 채운다 (기록 기능 이전 세이브의 그래프가 비지 않게 — 토큰 수는 알 수 없어 0)</summary>
+    /// <summary>
+    /// 별빛 장부가 아는 날 중 기록에 가중 토큰·별빛이 없는 날을 장부로 채운다 (기록 기능 이전 세이브나 별사탕만 적힌 날의 그래프가
+    /// 비지 않게). 토큰 수·별사탕은 장부가 모르니 그대로 둔다 — 이미 값이 있는 날은 건드리지 않는다.
+    /// </summary>
     public static void SeedFromLedger(GameState s)
     {
         foreach (var (day, w) in s.Ledger.CreditedWeighted)
         {
-            if (s.History.ContainsKey(day)) continue;
-            s.History[day] = new DayUsage { Weighted = w, Starlight = Balance.DailyStarlight(w) };
+            if (!(w > 0)) continue;
+            if (!s.History.TryGetValue(day, out var d)) s.History[day] = d = new DayUsage();
+            else if (d.Weighted > 0 || d.Starlight > 0) continue;
+            d.Weighted = w;
+            d.Starlight = Balance.DailyStarlight(w);
         }
     }
 
