@@ -1,13 +1,14 @@
 using CozyOrbit.App.Infra;
 using Avalonia.Platform.Storage;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using CozyOrbit.Core.Game;
 using CozyOrbit.Core.Infra;
 
 namespace CozyOrbit.App.Views.Pages;
 
-/// <summary>설정: 언어 · 창 동작 · 사용량 소스 켜고 끄기 · 기록</summary>
+/// <summary>설정: 언어 · 창 동작 · 소리 · 사용량 소스 켜고 끄기 · 업데이트 · 기록</summary>
 public sealed class SettingsPage : Page
 {
     private readonly TextBlock _stats = Text("", "dim");
@@ -58,6 +59,61 @@ public sealed class SettingsPage : Page
         var floating = new Button { Content = L.T("플로팅 창 열기/닫기 (항상 위, 우주선·햄찌만)", "Toggle floating window (always on top, scene only)") };
         floating.Click += (_, _) => App.Current.ToggleFloating();
         root.Children.Add(floating);
+
+        // 소리 (기본 꺼짐)
+        root.Children.Add(Header(L.T("소리", "Sound"), "fx_note"));
+        var soundOn = new CheckBox { Content = L.T("소리 켜기", "Enable sound"), IsChecked = s.Settings.SoundEnabled };
+        var music = new CheckBox { Content = L.T("배경음", "Music"), IsChecked = s.Settings.MusicEnabled, MinWidth = 120 };
+        var effects = new CheckBox { Content = L.T("효과음", "Sound effects"), IsChecked = s.Settings.EffectsEnabled, MinWidth = 120 };
+        var volume = new Slider { Minimum = 0, Maximum = 100, Value = Math.Round(s.Settings.Volume * 100), Width = 180, VerticalAlignment = VerticalAlignment.Center };
+        var volumeText = Text($"{(int)volume.Value}%", "dim");
+        volumeText.VerticalAlignment = VerticalAlignment.Center;
+        // 생성자에서는 아직 화면에 붙지 않아 리소스를 못 찾는다 → 팔레트 색을 바로
+        var soundNote = Text("", fg: Rendering.SkinArt.Solid(Core.Art.Palette.Warn));
+        var volumeLabel = Text(L.T("음량", "Volume"));
+        volumeLabel.VerticalAlignment = VerticalAlignment.Center;
+        var detail = Column(4, Row(12, music, effects), Row(8, volumeLabel, volume, volumeText));
+        void SyncSound()
+        {
+            detail.IsEnabled = Host.State.Settings.SoundEnabled;
+            soundNote.Text = Sound.Error ?? "";
+            soundNote.IsVisible = Sound.Error != null;
+        }
+        soundOn.IsCheckedChanged += (_, _) =>
+        {
+            Host.State.Settings.SoundEnabled = soundOn.IsChecked == true;
+            Host.Save();
+            Sound.Apply();
+            // 켜자마자 들리는지 확인할 수 있게 짧은 소리 하나
+            Sound.Play(Core.Audio.SoundId.Star);
+            SyncSound();
+        };
+        music.IsCheckedChanged += (_, _) =>
+        {
+            Host.State.Settings.MusicEnabled = music.IsChecked == true;
+            Host.Save();
+            Sound.Apply();
+        };
+        effects.IsCheckedChanged += (_, _) =>
+        {
+            Host.State.Settings.EffectsEnabled = effects.IsChecked == true;
+            Host.Save();
+            Sound.Play(Core.Audio.SoundId.Buy);
+        };
+        volume.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != RangeBase.ValueProperty) return;
+            Host.State.Settings.Volume = Math.Round(volume.Value) / 100;
+            volumeText.Text = $"{(int)Math.Round(volume.Value)}%";
+            Sound.Apply();
+        };
+        // 놓을 때 한 번 들려 준다 (끄는 동안 계속 울리지 않게)
+        volume.AddHandler(PointerReleasedEvent, (_, _) => { Host.Save(); Sound.Play(Core.Audio.SoundId.Buy); }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        root.Children.Add(Text(L.T("업무 중에도 띄워 두는 게임이라 기본은 꺼져 있어요.", "Off by default, since the game stays open while you work."), "dim"));
+        root.Children.Add(soundOn);
+        root.Children.Add(detail);
+        root.Children.Add(soundNote);
+        SyncSound();
 
         // 사용량 소스
         root.Children.Add(Header(L.T("별빛이 되는 AI 사용량", "AI usage that becomes starlight"), "icon_starlight"));

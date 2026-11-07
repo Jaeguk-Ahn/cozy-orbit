@@ -81,6 +81,7 @@ public partial class App : Application
             }
             _host.Start();
             UpdateService.Start(_host);
+            Sound.Attach(_host);
             SetupTray();
             Instance?.WatchShowRequests(() => Dispatcher.UIThread.Post(ShowMain));
             // macOS: 독 아이콘을 눌러 다시 열기
@@ -212,6 +213,7 @@ public partial class App : Application
         _quitting = true;
         _floating?.Close();
         _main?.Close();
+        Sound.Shutdown();
         _host?.Dispose();
         _host = null;
         _tray?.Dispose();

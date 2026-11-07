@@ -115,7 +115,9 @@ public partial class MainWindow : Window
         int claimable = Achievements.ClaimableCount(s) + s.Daily.Goals.Count(g => DailyGoals.CanClaim(s, g)) + (DailyGoals.CanClaimBonus(s) ? 1 : 0);
         string goalsLabel = L.T("목표", "Goals") + (claimable > 0 ? $" {claimable}" : "");
         if (GoalsTabText.Text != goalsLabel) GoalsTabText.Text = goalsLabel;
-        GoalsTabText.Foreground = claimable > 0 ? (Avalonia.Media.IBrush)this.FindResource("StarlightBrush")! : null;
+        // null 을 넣으면 물려받은 글자색까지 지워져 안 보인다 → 받을 게 없으면 값을 비운다
+        if (claimable > 0) GoalsTabText.Foreground = (Avalonia.Media.IBrush)this.FindResource("StarlightBrush")!;
+        else GoalsTabText.ClearValue(Avalonia.Controls.TextBlock.ForegroundProperty);
 
         var dest = Destinations.Current(s);
         var sector = Destinations.SectorOf(dest, s.DiscoveryCount);

@@ -49,6 +49,7 @@ public sealed class SaveStore
             if (!double.IsFinite(state.Stardust) || state.Stardust < 0) state.Stardust = 0;
             if (!double.IsFinite(state.Starlight) || state.Starlight < 0) state.Starlight = 0;
             if (!double.IsFinite(state.Candy.Balance) || state.Candy.Balance < 0) state.Candy.Balance = 0;
+            state.Settings.Volume = double.IsFinite(state.Settings.Volume) ? Math.Clamp(state.Settings.Volume, 0, 1) : 0.6;
             return state;
         }
         catch (Exception ex) when (ex is JsonException or IOException or NotSupportedException or InvalidOperationException)

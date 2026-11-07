@@ -110,6 +110,7 @@ public sealed class GoalsPage : Page
         button.Click += (_, _) =>
         {
             if (!claim()) return;
+            Infra.Sound.Play(CozyOrbit.Core.Audio.SoundId.Star);
             Host.Save();
             Tick();
         };

@@ -24,3 +24,6 @@
 - **앞으로의 모든 앱 버전은 `--finish-update` 를 알아들어야 한다** (`Program.Main` 맨 앞의 `UpdateInstaller.RunFinishUpdate`) — 옛 버전이 새 버전을 이 인자로 띄워 설치를 마친다.
 - 릴리스 태그는 `release/vX.Y.Z` (csproj `<Version>` 과 같아야 함). 태그 만들기·푸시·삭제와 초안 릴리스 공개는 **무조건 사용자 확인 후에**.
 - 앱 실행 중엔 `src/CozyOrbit.App/bin` 이 잠긴다 — 확인 빌드는 `-p:BaseOutputPath=$TEMP/cozy-out/` 처럼 다른 폴더로.
+- 소리는 **기본 꺼짐**을 유지한다. 재생은 `App/Infra/OpenAl.cs` 의 P/Invoke 로만 (Silk.NET.OpenAL 로더는 단일 파일 exe 에서 라이브러리를 못 찾는다).
+  효과음을 더할 땐 `SoundId` + `SoundSynth.Effect` 에 넣고 `Sound.Play` 로 부른다.
+- 페이지 생성자에서는 아직 화면에 붙지 않아 `FindResource`(`Brush("…")`) 가 실패한다 — 생성자에선 팔레트 색(`SkinArt.Solid(Palette.X)`)을, 리소스는 `Tick`/`Refresh` 에서.

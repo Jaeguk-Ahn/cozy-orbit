@@ -1,0 +1,12 @@
+Cozy Orbit plays sound through OpenAL Soft, used unmodified as a dynamically loaded library
+(Windows: soft_oal.dll, macOS: libopenal.dylib — taken from the Silk.NET.OpenAL.Soft.Native 1.23.1 NuGet package).
+
+OpenAL Soft
+Copyright (C) the OpenAL Soft contributors
+Licensed under the GNU Library General Public License, version 2 (LGPL-2.0-or-later).
+License text: https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html
+Source code:  https://github.com/kcat/openal-soft
+
+Replacing the library: put your own build named soft_oal.dll (Windows) or libopenal.dylib (macOS)
+next to the CozyOrbit executable (macOS: Cozy Orbit.app/Contents/MacOS/). The game loads that file
+first, before its bundled copy.

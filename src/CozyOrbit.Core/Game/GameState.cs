@@ -123,6 +123,13 @@ public sealed class GameSettings
     public bool LaunchAtLogin { get; set; }
     /// <summary>새 버전 자동 확인</summary>
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>소리 전체 (기본 꺼짐 — 업무 중에 갑자기 소리가 나지 않게)</summary>
+    public bool SoundEnabled { get; set; }
+    /// <summary>소리를 켰을 때 배경음·효과음 각각</summary>
+    public bool MusicEnabled { get; set; } = true;
+    public bool EffectsEnabled { get; set; } = true;
+    /// <summary>전체 음량 0..1</summary>
+    public double Volume { get; set; } = 0.6;
     /// <summary>끈 사용량 소스 (프로바이더 id)</summary>
     public HashSet<string> DisabledProviders { get; set; } = new();
     /// <summary>플로팅 창이 떠 있었는지 — 다음 실행 때 큰 창 대신 플로팅으로 시작</summary>

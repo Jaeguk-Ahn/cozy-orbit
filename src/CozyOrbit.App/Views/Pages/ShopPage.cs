@@ -119,7 +119,11 @@ public sealed class ShopPage : Page
         else
         {
             changed = Decor.TryBuy(s, d.Id);
-            if (changed) AppLog.Info($"소품 구매 {d.Id}");
+            if (changed)
+            {
+                AppLog.Info($"소품 구매 {d.Id}");
+                Infra.Sound.Play(CozyOrbit.Core.Audio.SoundId.Buy);
+            }
         }
         if (!changed) return;
         Host.Save();

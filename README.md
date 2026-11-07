@@ -15,6 +15,7 @@
 - 오늘의 목표 3개 · 도전과제 23개 · 날짜별 사용량 그래프.
 - 햄찌를 누르면 쓰다듬기, 가끔 별똥별(누르면 별가루)·유성우·우주 고래.
 - 트레이 상주, 로그인 시 자동 실행, 한국어/영어, 서명된 자동 업데이트.
+- 소리: 직접 합성한 로파이 배경음과 효과음. 기본은 꺼져 있고 설정 → 소리에서 켠다 (배경음·효과음 따로, 음량).
 - 플로팅 창: 장면의 "플로팅" 버튼(또는 트레이 메뉴)으로 우주선·햄찌 장면만 담긴 작은 창을 항상 위에 띄운다.
   끌어서 옮기고, 오른쪽 아래 손잡이·오른쪽 클릭 메뉴(작게/보통/크게)로 크기를 바꾸며, 두 번 누르면 큰 창으로 돌아간다.
   위치·크기를 기억하고, 플로팅으로 둔 채 끝내면 다음 실행도 플로팅으로 시작한다. 알림은 햄찌 말풍선으로.
@@ -42,4 +43,5 @@ dotnet test tests/CozyOrbit.Core.Tests
 ## 라이선스 참고
 
 - 글꼴: [갈무리 (Galmuri)](https://github.com/quiple/galmuri) — SIL Open Font License 1.1 (`src/CozyOrbit.App/Assets/Fonts/OFL.txt`).
+- 소리 출력: [OpenAL Soft](https://github.com/kcat/openal-soft) — LGPL, 수정 없이 동적 로드 (`src/CozyOrbit.App/Assets/Licenses/OpenAL-Soft.txt`).
 - 사용량 읽기 코드는 같은 작성자의 poke-token-bar-window 에서 옮겨 왔다.

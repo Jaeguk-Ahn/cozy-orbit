@@ -29,6 +29,8 @@
     <PackageReference Include="Avalonia" Version="11.3.22" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <!-- 소리 출력: OpenAL Soft 네이티브 라이브러리만 (LGPL — 동적 로드, Assets/Licenses/OpenAL-Soft.txt). 호출은 Infra/OpenAl.cs 의 P/Invoke -->
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CozyOrbit.Core\CozyOrbit.Core.csproj" />

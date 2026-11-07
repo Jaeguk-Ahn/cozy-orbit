@@ -282,6 +282,7 @@ public sealed class SceneView : Control
         {
             _events.Remove(star);
             double reward = host.CatchShootingStar(star.Small);
+            Infra.Sound.Play(Core.Audio.SoundId.Star);
             for (int i = 0; i < 4; i++)
                 _floaters.Add(new Floater { Sprite = "sparkle", X = star.X + (_rng.NextDouble() * 8 - 4) * scale, Y = star.Y, Drift = _rng.NextDouble() * 10 - 5, Life = 0.8 });
             _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T($"별가루 +{Fmt.Compact(reward)}!", $"Stardust +{Fmt.Compact(reward)}!"), Icon = "icon_stardust", At = new Point(star.X, star.Y), Duration = 1.8 });
@@ -308,6 +309,7 @@ public sealed class SceneView : Control
             var line = PetLines[_rng.Next(PetLines.Length)];
             _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T(line.Ko, line.En), Hamster = i, Duration = 2.2 });
             host.PetHamster();
+            Infra.Sound.Play(Core.Audio.SoundId.Squeak);
             e.Handled = true;
             return;
         }

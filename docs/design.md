@@ -199,8 +199,13 @@ scripts/                 배포 묶기·업데이트 매니페스트 서명
 - 릴리스 절차: csproj `<Version>` 올리기 → main 푸시 → (사용자 확인 후) `release/vX.Y.Z` 태그 푸시 → release.yml 이 묶고 서명해 **초안** 릴리스 → 확인 후 Publish.
 - 필요한 설정: GitHub Environment `ENV_RELEASE` (태그 `release/v*` 만 허용) + 시크릿 `UPDATE_SIGNING_KEY` (개인 키 PEM 전체).
 
-## 15. 소리 (아직 없음 — 검토만)
+## 15. 소리
 
-- 음원은 직접 만들 수 있다: 외부 샘플 없이 파형(삼각파·사각파·노이즈) + ADSR 로 계산해 WAV 를 만드는 시험에서 로파이 배경음 루프(26초)와 효과음 5종(발견·햄찌·별똥별·구매·새 항해)이 나왔다.
-- 재생이 문제: .NET·Avalonia 에는 Windows·macOS 공통 소리 출력이 없다. 후보: Silk.NET.OpenAL + OpenAL Soft 네이티브(플랫폼별 dll/dylib 동봉), SoundFlow(miniaudio 기반), NAudio(Windows 전용이라 탈락).
-- 넣는다면: 기본 꺼짐(업무 중), 음량 설정, 효과음만/배경음 따로 끄기.
+- **기본 꺼짐** (업무 중에 띄워 두는 게임). 설정 → 소리: 켜기, 배경음·효과음 따로, 음량(0–100%, 기본 60%). 배경음은 효과음의 45% 크기.
+- 음원은 외부 파일 없이 `Core/Audio/SoundSynth` 가 계산한다: 파형(삼각파·사각파·노이즈) + ADSR, 44.1kHz 16bit 모노, 고정 시드라 늘 같은 소리, 최댓값 0.8 로 정규화.
+  - 배경음: BPM 76 · 8마디(약 25초) 로파이 루프 (Cmaj7–Am7–Fmaj7–G, 패드·베이스·브러시 드럼·멜로디). 끝에서 넘치는 꼬리를 앞에 겹쳐 이음매가 없다. 처음 켤 때 백그라운드에서 계산.
+  - 효과음 5종: 발견(아르페지오, 0.6초에 한 번까지), 햄찌 쓰다듬기(찍), 별똥별·목표 보상(차임), 구매 — 연구·스킨·소품(동전), 새 항해 출발(팡파레).
+- 재생: OpenAL Soft 네이티브(`Silk.NET.OpenAL.Soft.Native` 의 soft_oal.dll / libopenal.dylib)를 `App/Infra/OpenAl.cs` 의 P/Invoke 로 직접 부른다.
+  Silk.NET.OpenAL 의 로더는 단일 파일 exe 에서 라이브러리를 못 찾아 빼고, 런타임 기본 탐색(자체 압축 해제)으로 연다.
+  `App/Infra/Sound` 가 켤 때 처음 장치를 열고(효과음 4음 돌려쓰기 + 배경음 루프 하나), 못 열면 꺼진 채로 설정에 이유를 보인다.
+- 라이선스: OpenAL Soft 는 LGPL — 수정 없이 동적으로 불러오고, 실행 파일 옆에 같은 이름 파일을 두면 그것을 먼저 쓴다 (`Assets/Licenses/OpenAL-Soft.txt`).

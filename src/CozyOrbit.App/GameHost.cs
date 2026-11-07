@@ -146,6 +146,7 @@ public sealed class GameHost : IDisposable
     {
         GameRules.CatchUp(State, DateTimeOffset.Now);
         if (!GameRules.TryBuy(State, upgradeId)) return false;
+        Infra.Sound.Play(CozyOrbit.Core.Audio.SoundId.Buy);
         Save();
         Ticked?.Invoke();
         return true;
@@ -182,6 +183,7 @@ public sealed class GameHost : IDisposable
     {
         if (!Shop.TryBuy(State, skinId)) return false;
         AppLog.Info($"스킨 구매 {skinId}");
+        Infra.Sound.Play(CozyOrbit.Core.Audio.SoundId.Buy);
         Save();
         SkinsChanged?.Invoke();
         return true;
