@@ -9,6 +9,19 @@
     <!-- 창은 GameHost 를 받아 코드에서만 만든다 (런타임 XAML 로더용 기본 생성자 없음) -->
     <NoWarn>$(NoWarn);AVLN3001</NoWarn>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- 배포 메타데이터 (exe 속성 — macOS Info.plist 는 scripts/publish-mac.sh) -->
+    <Product>Cozy Orbit</Product>
+    <AssemblyTitle>Cozy Orbit</AssemblyTitle>
+    <Description>Cozy healing idle game fueled by your AI usage</Description>
+    <Authors>Jaeguk Ahn</Authors>
+    <Copyright>Copyright (c) Jaeguk Ahn</Copyright>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 자동 업데이트: 배포 스크립트가 -p:CozyUpdateFlavor=win-x64|osx-arm64|osx-x64 로 넣는다 (개발 빌드엔 없음 → 설치 대신 안내만) -->
+    <AssemblyMetadata Include="CozyUpdateFlavor" Value="$(CozyUpdateFlavor)" Condition="'$(CozyUpdateFlavor)' != ''" />
+  </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>

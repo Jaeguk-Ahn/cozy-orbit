@@ -32,6 +32,11 @@ public static class Balance
     public const double BaseBatteryCapacity = 3600;
     public static readonly TimeSpan BaseOfflineCap = TimeSpan.FromHours(8);
 
+    // ── 우주 이벤트 (§12) ──
+    /// <summary>별똥별 보상 = 지금 별가루 수입의 이 초만큼</summary>
+    public const double ShootingStarSeconds = 45;
+    public const double ShootingStarMinReward = 10;
+
     // ── 연구 효과/레벨 (§5) — 비용은 Upgrades 카탈로그 ──
     // 엔진·망원경 배율의 곱(1.1 × 1.1)이 비용 성장(1.6·1.65)보다 한참 작아야 폭주하지 않는다
     public const double EnginePerLevel = 1.1;
@@ -45,17 +50,34 @@ public static class Balance
     // ── 발견 (§6) ──
     // 거리는 다항식: 속도가 다항식으로 자라므로 지수식이면 후반 간격이 너무 벌어지거나 폭주한다
     public const double DiscoveryBaseDistance = 30;
-    public const double DiscoveryDistancePower = 5;
+    public const double DiscoveryDistancePower = 4.2;
     public const double DiscoveryBaseReward = 20;
     public const double DiscoveryRewardPower = 2;
 
-    /// <summary>k 번째(0부터) 발견이 일어나는 누적 거리 = 30 + (k+1)^5</summary>
-    public static double DiscoveryDistance(int k) =>
-        Math.Round(DiscoveryBaseDistance + Math.Pow(k + 1, DiscoveryDistancePower), MidpointRounding.AwayFromZero);
+    // ── 새 항해 (§11) ──
+    /// <summary>끝낸 항해마다 속도·별가루에 곱해지는 영구 배율</summary>
+    public const double VoyageBonus = 1.6;
+    /// <summary>
+    /// 두 번째 항해부터의 발견 거리·보상 배율. 뒤 목적지는 천체가 12개뿐이라 처음부터(k=0) 세면 몇 시간 만에 끝나므로
+    /// 우리 은하 후반쯤의 거리에서 시작하게 크게 곱한다 (시뮬레이션: 가벼운 사용 기준 목적지마다 약 10일).
+    /// </summary>
+    public const double VoyageBaseScale = 600;
+    /// <summary>그 뒤 항해마다 더 곱하는 배율 (보너스보다 조금 커서 뒤 목적지일수록 살짝 길다)</summary>
+    public const double VoyageDistanceGrowth = 2.0;
+    /// <summary>새 항해를 떠날 때 받는 별사탕 = 이것 × (끝낸 항해 수 + 1)</summary>
+    public const double VoyageCandyBase = 100;
 
-    /// <summary>k 번째(0부터) 발견의 별가루 보상 = 20 × (k+1)^2</summary>
-    public static double DiscoveryReward(int k) =>
-        Math.Round(DiscoveryBaseReward * Math.Pow(k + 1, DiscoveryRewardPower), MidpointRounding.AwayFromZero);
+    /// <summary>voyage 번째 항해의 발견 거리·보상 배율 (첫 항해 1, 그다음부터 600 × 2^(v-1))</summary>
+    public static double VoyageScale(int voyage) =>
+        voyage <= 0 ? 1 : VoyageBaseScale * Math.Pow(VoyageDistanceGrowth, voyage - 1);
+
+    /// <summary>voyage 번째 항해의 k 번째(0부터) 발견이 일어나는 누적 거리 = 배율 × (30 + (k+1)^4.2)</summary>
+    public static double DiscoveryDistance(int voyage, int k) =>
+        Math.Round(VoyageScale(voyage) * (DiscoveryBaseDistance + Math.Pow(k + 1, DiscoveryDistancePower)), MidpointRounding.AwayFromZero);
+
+    /// <summary>voyage 번째 항해의 k 번째(0부터) 발견의 별가루 보상 = 배율 × 20 × (k+1)^2</summary>
+    public static double DiscoveryReward(int voyage, int k) =>
+        Math.Round(VoyageScale(voyage) * DiscoveryBaseReward * Math.Pow(k + 1, DiscoveryRewardPower), MidpointRounding.AwayFromZero);
 
     /// <summary>가중 토큰 하루치 → 별빛 (로그 곡선, 단조 증가)</summary>
     public static double DailyStarlight(double weightedTokens) =>

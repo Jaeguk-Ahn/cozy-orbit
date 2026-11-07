@@ -60,6 +60,26 @@ public sealed class SaveStoreTests : IDisposable
     }
 
     [Fact]
+    public void V1SaveRebuildsTheAtlasForTheNewMilkyWayOrder()
+    {
+        // v1 순서: 6번째(0부터)가 crystal_rock. v2 에서는 그 자리에 실제 천체(달·금성)가 들어왔다.
+        var path = Path.Combine(_dir, "save.json");
+        File.WriteAllText(path, """
+            { "version": 1, "distance": 5000, "discoveryCount": 8,
+              "foundAt": { "pebble_moon": "2026-11-07T10:00:00+00:00", "crystal_rock": "2026-11-07T11:00:00+00:00" },
+              "upgrades": { "engine": 2, "scope": 1 } }
+            """);
+        var s = new SaveStore(path).Load(Now);
+
+        Assert.Equal(GameState.CurrentVersion, s.Version);
+        Assert.Equal(Destinations.MilkyWay.Catalog.Take(8).Select(d => d.Id).Order(), s.FoundAt.Keys.Order());
+        Assert.DoesNotContain("crystal_rock", s.FoundAt.Keys);
+        Assert.Equal(new DateTimeOffset(2026, 11, 7, 10, 0, 0, TimeSpan.Zero), s.FoundAt["pebble_moon"]);
+        Assert.Equal(8, s.Stats.Discoveries);
+        Assert.Equal(3, s.Stats.ResearchBought);
+    }
+
+    [Fact]
     public void BrokenSaveIsMovedAsideNotDeleted()
     {
         var path = Path.Combine(_dir, "save.json");

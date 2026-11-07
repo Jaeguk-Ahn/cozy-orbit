@@ -93,6 +93,7 @@ public static class StarlightLedger
             double before = ledger.CreditedWeighted.GetValueOrDefault(day);
             if (w <= before) continue;
             credit += Balance.DailyStarlight(w) - Balance.DailyStarlight(before);
+            s.Stats.WeightedTokens += w - before;
             ledger.CreditedWeighted[day] = w;
         }
 

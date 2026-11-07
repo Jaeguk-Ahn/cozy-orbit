@@ -1,15 +1,23 @@
 using System.Globalization;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
+using CozyOrbit.Core.Art;
 using CozyOrbit.Core.Game;
 using CozyOrbit.Core.Infra;
 
 namespace CozyOrbit.App.Views.Pages;
 
-/// <summary>별빛 기록: 오늘 받은 별빛, 소스별 오늘 사용량, 최근 날짜별 지급, 환산 규칙.</summary>
+/// <summary>별빛 기록: 날짜별 사용량 그래프, 오늘 받은 별빛, 소스별 오늘 사용량, 최근 날짜별 지급, 환산 규칙.</summary>
 public sealed class LogPage : Page
 {
+    private enum Metric { Tokens, Weighted, Starlight, Candy }
+
     private readonly StackPanel _root = new() { Spacing = 6 };
+    /// <summary>그래프 기간 (7 또는 30일)</summary>
+    private int _rangeDays = 7;
+    private Metric _metric = Metric.Tokens;
 
     public LogPage(GameHost host) : base(host)
     {
@@ -21,6 +29,8 @@ public sealed class LogPage : Page
         var s = Host.State;
         var now = DateTimeOffset.Now;
         _root.Children.Clear();
+
+        _root.Children.Add(ChartCard(s, now));
 
         double todayW = s.Ledger.CreditedWeighted.GetValueOrDefault(StarlightLedger.DayKey(now));
         double todayLight = Balance.DailyStarlight(todayW);
@@ -86,5 +96,105 @@ public sealed class LogPage : Page
             $"하루 별빛(초) = {Balance.DailyStarlightScale} × ln(1 + 가중 토큰 ÷ {Fmt.Compact(Balance.DailyStarlightPivot)})\n별빛 1 = 부스트 1초",
             $"Weighted = output ×{Balance.WeightOutput} + input ×{Balance.WeightInput} + cache write ×{Balance.WeightCacheWrite} + cache read ×{Balance.WeightCacheRead}\n" +
             $"Daily starlight (s) = {Balance.DailyStarlightScale} × ln(1 + weighted ÷ {Fmt.Compact(Balance.DailyStarlightPivot)})\n1 starlight = 1 second of boost"), "dim"));
+    }
+
+    // ── 날짜별 사용량 그래프 ──
+
+    private Control ChartCard(GameState s, DateTimeOffset now)
+    {
+        var today = now.ToLocalTime().Date;
+        var points = new ChartPoint[_rangeDays];
+        double sum = 0;
+        for (int i = 0; i < _rangeDays; i++)
+        {
+            var day = today.AddDays(i - (_rangeDays - 1));
+            string key = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            double v = Value(s, key);
+            sum += v;
+            points[i] = new ChartPoint(day.ToString("M/d", CultureInfo.InvariantCulture), v,
+                day.ToString(L.IsKorean ? "M월 d일 (ddd)" : "MMM d (ddd)", L.Culture));
+        }
+
+        var (bar, lit) = _metric switch
+        {
+            Metric.Tokens => (Palette.Blue, Palette.Sky),
+            Metric.Weighted => (Palette.Purple, Palette.Lilac),
+            Metric.Starlight => (Palette.Gold, Palette.Butter),
+            _ => (Palette.Rose, Palette.Pink),
+        };
+        var chart = new UsageChart
+        {
+            Points = points,
+            Format = Format(_metric),
+            BarColor = Color.FromUInt32(bar),
+            HighlightColor = Color.FromUInt32(lit),
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+
+        var title = Row(6, new PixelIcon { Sprite = "icon_log", Scale = 1, VerticalAlignment = VerticalAlignment.Center }, Text(L.T("날짜별 사용량", "Usage by day"), "h"));
+        title.VerticalAlignment = VerticalAlignment.Center;
+        var range = Row(4,
+            Toggle(L.T("7일", "7d"), _rangeDays == 7, () => _rangeDays = 7),
+            Toggle(L.T("30일", "30d"), _rangeDays == 30, () => _rangeDays = 30));
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
+        Grid.SetColumn(range, 1);
+        head.Children.Add(title);
+        head.Children.Add(range);
+
+        var metrics = Row(4,
+            Toggle(L.T("토큰", "Tokens"), _metric == Metric.Tokens, () => _metric = Metric.Tokens),
+            Toggle(L.T("가중 토큰", "Weighted"), _metric == Metric.Weighted, () => _metric = Metric.Weighted),
+            Toggle(L.T("별빛", "Starlight"), _metric == Metric.Starlight, () => _metric = Metric.Starlight),
+            Toggle(L.T("별사탕", "Candy"), _metric == Metric.Candy, () => _metric = Metric.Candy));
+
+        var fmt = Format(_metric);
+        string totals = sum > 0
+            ? L.T($"최근 {_rangeDays}일 합계 {fmt(sum)} · 하루 평균 {fmt(sum / _rangeDays)}",
+                  $"Last {_rangeDays} days: total {fmt(sum)} · daily average {fmt(sum / _rangeDays)}")
+            : L.T($"최근 {_rangeDays}일 기록이 아직 없어요. AI 도구를 쓰면 날마다 쌓여요.",
+                  $"Nothing recorded in the last {_rangeDays} days yet. It fills in day by day as you use AI tools.");
+
+        return Card(Column(4, head, metrics, chart, Text(totals, "dim")));
+    }
+
+    /// <summary>그날 값. 가중 토큰·별빛은 장부가 기록보다 앞서 있으면(다음 기록 전) 장부 값을 쓴다.</summary>
+    private double Value(GameState s, string day)
+    {
+        var d = s.History.GetValueOrDefault(day);
+        double credited = s.Ledger.CreditedWeighted.GetValueOrDefault(day);
+        return _metric switch
+        {
+            Metric.Tokens => d?.Tokens ?? 0,
+            Metric.Weighted => Math.Max(d?.Weighted ?? 0, credited),
+            Metric.Starlight => Math.Max(d?.Starlight ?? 0, Balance.DailyStarlight(credited)),
+            _ => d?.Candy ?? 0,
+        };
+    }
+
+    private static Func<double, string> Format(Metric m) => m switch
+    {
+        Metric.Starlight => Fmt.Duration,
+        Metric.Candy => v => L.T($"{CandyText(v)}개", CandyText(v)),
+        _ => Fmt.Compact,
+    };
+
+    private static string CandyText(double v) => v < 10 ? Fmt.Number(v, 1) : Fmt.Compact(v);
+
+    /// <summary>작은 선택 버튼. 고른 것은 별빛색으로 칠하고 눌리지 않게 (Fluent 의 accent 파랑을 피해 직접 칠한다)</summary>
+    private Button Toggle(string text, bool on, Action select)
+    {
+        var b = new Button { Content = text, Padding = new Thickness(6, 2), VerticalAlignment = VerticalAlignment.Center };
+        if (on)
+        {
+            b.Background = Brush("StarlightBrush");
+            b.Foreground = Brush("OutlineBrush");
+            b.IsHitTestVisible = false;
+        }
+        b.Click += (_, _) =>
+        {
+            select();
+            Refresh();
+        };
+        return b;
     }
 }

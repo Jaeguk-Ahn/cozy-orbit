@@ -53,6 +53,7 @@ public partial class App : Application
         Add("GoodBrush", Palette.Good);
         Add("WarnBrush", Palette.Warn);
         Add("CreamBrush", Palette.Cream);
+        Add("GoldBrush", Palette.Gold);
     }
 
     public override void OnFrameworkInitializationCompleted()
@@ -60,17 +61,26 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             _host = new GameHost();
-            // 지난번에 플로팅으로 두고 끝냈으면 플로팅으로 시작 (큰 창은 숨긴 채 만들어 알림만 받아 둔다)
+            // OS 에 실제로 등록돼 있는지가 기준 (다른 곳에서 지웠을 수도 있다)
+            _host.State.Settings.LaunchAtLogin = AutoStart.IsEnabled();
+            bool atLogin = desktop.Args?.Contains(AutoStart.Arg) == true;
+            // 지난번에 플로팅으로 두고 끝냈으면 플로팅으로 시작 (큰 창은 숨긴 채 만들어 알림만 받아 둔다).
+            // 로그인 자동 실행이면 큰 창을 띄우지 않고 트레이에서 조용히 시작한다.
             if (_host.State.Settings.FloatingOpen)
             {
                 EnsureMain();
                 ShowFloating();
+            }
+            else if (atLogin)
+            {
+                EnsureMain();
             }
             else
             {
                 ShowMain();
             }
             _host.Start();
+            UpdateService.Start(_host);
             SetupTray();
             Instance?.WatchShowRequests(() => Dispatcher.UIThread.Post(ShowMain));
             // macOS: 독 아이콘을 눌러 다시 열기

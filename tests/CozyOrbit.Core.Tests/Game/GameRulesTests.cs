@@ -54,13 +54,14 @@ public class GameRulesTests
     public void DiscoveriesHappenInOrderAtTheirDistancesAndPay()
     {
         var s = NewGame();
-        double target = Balance.DiscoveryDistance(2);
+        double target = Balance.DiscoveryDistance(0, 2);
         var r = GameRules.Advance(s, target);
 
         Assert.Equal(new[] { 0, 1, 2 }, r.Discoveries.Select(d => d.Index));
         Assert.Equal(3, s.DiscoveryCount);
         Assert.Equal(new[] { "cotton_cloud", "old_satellite", "pebble_moon" }, s.FoundAt.Keys.Order());
-        double rewards = Balance.DiscoveryReward(0) + Balance.DiscoveryReward(1) + Balance.DiscoveryReward(2);
+        double rewards = Balance.DiscoveryReward(0, 0) + Balance.DiscoveryReward(0, 1) + Balance.DiscoveryReward(0, 2);
+        Assert.Equal(3, s.Stats.Discoveries);
         Assert.Equal(target * Balance.DustPerStep + rewards, s.Stardust, 6);
     }
 
@@ -68,13 +69,14 @@ public class GameRulesTests
     public void DiscoveriesContinueAsNamelessStarsAfterTheCatalog()
     {
         var s = NewGame();
-        s.DiscoveryCount = Discoveries.Catalog.Count;
-        s.Distance = Balance.DiscoveryDistance(s.DiscoveryCount) - 0.5;
+        int catalog = Destinations.MilkyWay.Catalog.Count;
+        s.DiscoveryCount = catalog;
+        s.Distance = Balance.DiscoveryDistance(0, s.DiscoveryCount) - 0.5;
         var r = GameRules.Advance(s, 1);
 
         var d = Assert.Single(r.Discoveries);
-        Assert.Equal(Discoveries.NamelessSprite, d.Sprite);
-        Assert.Equal(Discoveries.Catalog.Count + 1, s.DiscoveryCount);
+        Assert.Equal(Destinations.NamelessSprite, d.Sprite);
+        Assert.Equal(catalog + 1, s.DiscoveryCount);
         Assert.Empty(s.FoundAt); // 이름 없는 별은 도감에 따로 적지 않는다
     }
 

@@ -73,33 +73,39 @@
       </StackPanel>
     </Border>
 
-    <!-- 탭 (설정은 아이콘만 — 다섯 칸이 영어에서도 들어가게) -->
-    <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,Auto" Margin="8,8,8,0" ColumnSpacing="4">
+    <!-- 탭 (설정은 아이콘만 — 여섯 칸이 영어에서도 들어가게) -->
+    <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*,Auto" Margin="8,8,8,0" ColumnSpacing="3">
       <ToggleButton x:Name="TabResearch" Grid.Column="0" Classes="tab">
-        <StackPanel Orientation="Horizontal" Spacing="4">
+        <StackPanel Orientation="Horizontal" Spacing="3">
           <v:PixelIcon Sprite="icon_lab" Scale="1" />
-          <TextBlock Text="{l:T Ko='연구', En='Research'}" />
+          <TextBlock Text="{l:T Ko='연구', En='Lab'}" />
         </StackPanel>
       </ToggleButton>
       <ToggleButton x:Name="TabCollection" Grid.Column="1" Classes="tab">
-        <StackPanel Orientation="Horizontal" Spacing="4">
+        <StackPanel Orientation="Horizontal" Spacing="3">
           <v:PixelIcon Sprite="icon_book" Scale="1" />
           <TextBlock Text="{l:T Ko='도감', En='Atlas'}" />
         </StackPanel>
       </ToggleButton>
-      <ToggleButton x:Name="TabLog" Grid.Column="2" Classes="tab">
-        <StackPanel Orientation="Horizontal" Spacing="4">
+      <ToggleButton x:Name="TabGoals" Grid.Column="2" Classes="tab">
+        <StackPanel Orientation="Horizontal" Spacing="3">
+          <v:PixelIcon Sprite="icon_goal" Scale="1" />
+          <TextBlock x:Name="GoalsTabText" Text="{l:T Ko='목표', En='Goals'}" />
+        </StackPanel>
+      </ToggleButton>
+      <ToggleButton x:Name="TabLog" Grid.Column="3" Classes="tab">
+        <StackPanel Orientation="Horizontal" Spacing="3">
           <v:PixelIcon Sprite="icon_log" Scale="1" />
           <TextBlock Text="{l:T Ko='별빛', En='Light'}" />
         </StackPanel>
       </ToggleButton>
-      <ToggleButton x:Name="TabShop" Grid.Column="3" Classes="tab">
-        <StackPanel Orientation="Horizontal" Spacing="4">
+      <ToggleButton x:Name="TabShop" Grid.Column="4" Classes="tab">
+        <StackPanel Orientation="Horizontal" Spacing="3">
           <v:PixelIcon Sprite="icon_shop" Scale="1" />
           <TextBlock Text="{l:T Ko='상점', En='Shop'}" />
         </StackPanel>
       </ToggleButton>
-      <ToggleButton x:Name="TabSettings" Grid.Column="4" Classes="tab" Padding="8,5"
+      <ToggleButton x:Name="TabSettings" Grid.Column="5" Classes="tab" Padding="8,5"
                     ToolTip.Tip="{l:T Ko='설정', En='Settings'}">
         <v:PixelIcon Sprite="icon_gear" Scale="1" />
       </ToggleButton>

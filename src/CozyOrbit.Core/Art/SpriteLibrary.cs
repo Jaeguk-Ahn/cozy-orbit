@@ -28,6 +28,11 @@ public static partial class SpriteLibrary
         AddThemes(set);
         AddObjects(set);
         AddIcons(set);
+        AddMilkyWay(set);
+        AddGalaxiesA(set);
+        AddGalaxiesB(set);
+        AddCosmos(set);
+        AddDecor(set);
         return set;
     }
 

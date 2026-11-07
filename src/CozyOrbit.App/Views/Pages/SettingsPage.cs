@@ -1,3 +1,4 @@
+using CozyOrbit.App.Infra;
 using Avalonia.Platform.Storage;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -35,6 +36,25 @@ public sealed class SettingsPage : Page
             Host.Save();
         };
         root.Children.Add(tray);
+        var login = new CheckBox
+        {
+            Content = L.T("로그인하면 자동으로 시작 (켜 둔 동안만 별사탕이 쌓여요)", "Start at login (star candy only builds while running)"),
+            IsChecked = s.Settings.LaunchAtLogin,
+        };
+        login.IsCheckedChanged += (_, _) =>
+        {
+            bool want = login.IsChecked == true;
+            if (want == Host.State.Settings.LaunchAtLogin) return;
+            // OS 등록에 실패하면 체크를 되돌린다 (개발 실행·권한 문제 등 — 로그에 이유)
+            if (!AutoStart.SetEnabled(want))
+            {
+                login.IsChecked = !want;
+                return;
+            }
+            Host.State.Settings.LaunchAtLogin = want;
+            Host.Save();
+        };
+        root.Children.Add(login);
         var floating = new Button { Content = L.T("플로팅 창 열기/닫기 (항상 위, 우주선·햄찌만)", "Toggle floating window (always on top, scene only)") };
         floating.Click += (_, _) => App.Current.ToggleFloating();
         root.Children.Add(floating);
@@ -51,6 +71,10 @@ public sealed class SettingsPage : Page
             wrap.Children.Add(box);
         }
         root.Children.Add(wrap);
+
+        // 업데이트
+        root.Children.Add(Header(L.T("업데이트", "Updates"), "icon_voyage"));
+        root.Children.Add(new UpdatePanel(host));
 
         // 기록
         root.Children.Add(Header(L.T("항해 기록", "Voyage log"), "icon_log"));

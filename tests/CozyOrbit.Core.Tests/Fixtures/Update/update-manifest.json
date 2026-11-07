@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "version": "0.0.1",
+  "tag": "release/v0.0.1",
+  "assets": {
+    "win-x64": { "name": "CozyOrbit-0.0.1-win-x64.zip", "size": 13, "sha256": "5bb15f495451c8a1b970e3a8b75735fd4fc039354de10e3eab57b70b61c13089" },
+    "osx-arm64": { "name": "CozyOrbit-0.0.1-osx-arm64.zip", "size": 15, "sha256": "37f3e7c0a8ba71d410901dc6799f64c7178fd2990d5ab62bc84036067c0b9270" },
+    "osx-x64": { "name": "CozyOrbit-0.0.1-osx-x64.zip", "size": 13, "sha256": "d1c149deb47826e64655fbd3fe8bbfbeab8fbe20b28f41e24d67f2bc28d68cb9" }
+  }
+}

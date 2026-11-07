@@ -66,13 +66,26 @@
       <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
     </Style>
-    <Style Selector="Button.accent">
+    <!-- Fluent 에도 accent 클래스가 있고 템플릿 ContentPresenter 를 칠한다 → 같은 선택자로 덮어야 별빛색이 이긴다 -->
+    <Style Selector="Button.accent /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource StarlightBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource OutlineBrush}" />
     </Style>
     <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource CreamBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource OutlineBrush}" />
+    </Style>
+    <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource GoldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource OutlineBrush}" />
+    </Style>
+    <Style Selector="Button.accent:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OutlineBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
     </Style>
 
     <!-- 탭 버튼 -->

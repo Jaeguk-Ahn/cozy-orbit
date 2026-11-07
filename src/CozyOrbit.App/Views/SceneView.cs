@@ -1,23 +1,29 @@
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CozyOrbit.App.Rendering;
+using CozyOrbit.App.Views.Scene;
 using CozyOrbit.Core.Art;
 using CozyOrbit.Core.Game;
+using CozyOrbit.Core.Infra;
 
 namespace CozyOrbit.App.Views;
 
 /// <summary>
-/// 우주 장면: 테마 하늘·장식 + 별 3겹 시차 스크롤 + 탐사선(스킨) + 다가오는/지나가는 천체 + 부스트 반짝이.
-/// 아래에는 연구소 바닥과 햄찌 크루를 그린다 — 햄찌들은 제자리 근처를 좌우로 돌아다닌다.
-/// 배율은 높이로 정한다 (플로팅 창처럼 작으면 2, 큰 창이면 3).
-/// 모든 좌표는 "도트 단위" × 정수 배율로 계산해 픽셀이 어긋나지 않게 한다.
+/// 우주 장면: 테마 하늘·장식 + 별 3겹 시차 스크롤 + 탐사선(스킨) + 다가오는/지나가는 천체 + 부스트 반짝이
+/// + 우주 이벤트(별똥별·유성우·고래). 아래에는 연구소(소품 + 돌아다니는 햄찌 크루).
+/// 햄찌를 누르면 쓰다듬기 반응, 별똥별을 누르면 별가루. ShowEventBubbles 면 발견·지급 알림을 말풍선으로 (플로팅 창).
+/// 배율은 높이로 정한다 (플로팅 창처럼 작으면 2, 큰 창이면 3). 좌표는 "도트 단위" × 정수 배율.
 /// </summary>
 public sealed class SceneView : Control
 {
     public GameHost? Host { get; set; }
+
+    /// <summary>발견·별사탕 같은 알림을 선장 말풍선으로 보여 줄지 (큰 창은 토스트가 있으므로 끈다)</summary>
+    public bool ShowEventBubbles { get; set; }
 
     private const int LabHeightUnits = 22;
     private const double FrameInterval = 1.0 / 30;
@@ -28,17 +34,23 @@ public sealed class SceneView : Control
 
     private readonly DispatcherTimer _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly Random _rng = new(1107);
+    private readonly Random _rng = new();
     private readonly Star[] _stars;
     private readonly List<Particle> _particles = new();
+    private readonly List<Floater> _floaters = new();
     private readonly List<Walker> _walkers = new();
+    private readonly List<Rect> _hamsterRects = new();
+    private readonly SceneBubbles _bubbles = new();
+    private readonly SceneEvents _events;
     private double _lastT;
     private double _scroll;
     private double _visualSpeed = 8;
     private double _sparkleDue;
+    private int _captainIndex;
 
     // 지나가는 천체 (발견 직후 왼쪽으로 빠져나간다)
     private int _seenDiscoveries = -1;
+    private int _seenVoyage = -1;
     private string? _passingSprite;
     private double _passingX;
     private double _passingY;
@@ -46,19 +58,31 @@ public sealed class SceneView : Control
 
     private readonly record struct Star(double X, double Y, int Layer, double Phase);
     private sealed class Particle { public double X, Y, Age; }
+    /// <summary>위로 둥실 떠오르는 작은 그림 (하트·음표·반짝이)</summary>
+    private sealed class Floater { public required string Sprite; public double X, Y, Age, Life = 1.2, Drift; }
 
     /// <summary>돌아다니는 햄찌 하나. X·Target 은 제자리(칸 가운데)로부터의 거리 (도트 단위).</summary>
     private sealed class Walker
     {
         public double X, Target, Wait, StepClock, Phase;
+        /// <summary>쓰다듬은 시각 (높이 폴짝)</summary>
+        public double PettedAt = double.NegativeInfinity;
         public bool Left;
         public bool Walking => Wait <= 0 && Math.Abs(Target - X) > 1e-6;
     }
+
+    private static readonly (string Ko, string En)[] PetLines =
+    [
+        ("찍!", "Squeak!"), ("간질간질~", "Tickles~"), ("도토리 최고!", "Acorns rule!"), ("오늘도 같이 힘내요!", "Let's do our best today!"),
+        ("해바라기씨 주세요", "Sunflower seeds, please"), ("우주 최고 연구소!", "Best lab in space!"), ("헤헤", "Hehe"),
+        ("별이 반짝반짝", "Twinkle twinkle"), ("일 열심히 하고 있어요?", "Working hard?"), ("쉬엄쉬엄 해요~", "Take it easy~"),
+    ];
 
     public SceneView()
     {
         ClipToBounds = true;
         _stars = Enumerable.Range(0, 70).Select(i => new Star(_rng.NextDouble(), _rng.NextDouble(), i < 44 ? 0 : i < 64 ? 1 : 2, _rng.NextDouble() * 10)).ToArray();
+        _events = new SceneEvents(_rng, 0);
         _timer = new DispatcherTimer(TimeSpan.FromSeconds(FrameInterval), DispatcherPriority.Render, (_, _) => Advance());
     }
 
@@ -67,13 +91,59 @@ public sealed class SceneView : Control
         base.OnAttachedToVisualTree(e);
         _lastT = _clock.Elapsed.TotalSeconds;
         _timer.Start();
+        if (Host is { } host)
+        {
+            host.Discovered += OnDiscovered;
+            host.Credited += OnCredited;
+            host.Returned += OnReturned;
+            host.VoyageReady += OnVoyageReady;
+            host.VoyageStarted += OnVoyageStarted;
+        }
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         _timer.Stop();
+        if (Host is { } host)
+        {
+            host.Discovered -= OnDiscovered;
+            host.Credited -= OnCredited;
+            host.Returned -= OnReturned;
+            host.VoyageReady -= OnVoyageReady;
+            host.VoyageStarted -= OnVoyageStarted;
+        }
         base.OnDetachedFromVisualTree(e);
     }
+
+    // ── 알림 말풍선 (플로팅 창) ──
+
+    private void Notify(string text, string? icon)
+    {
+        if (ShowEventBubbles) _bubbles.Enqueue(new SceneBubbles.Bubble { Text = text, Icon = icon, Hamster = -1 });
+    }
+
+    private void OnDiscovered(DiscoveryEvent d)
+    {
+        Notify(L.T($"{d.Name} 발견!", $"Found {d.Name}!"), d.Sprite);
+        if (d.Id != null && Decor.SouvenirFor(d.Id) is { } souvenir)
+            Notify(L.T($"기념품: {souvenir.Name}", $"Souvenir: {souvenir.Name}"), souvenir.Sprite);
+    }
+
+    private void OnCredited(CreditResult c, double candy)
+    {
+        if (candy >= 0.1) Notify(L.T($"별사탕 +{Fmt.Number(candy, 1)}", $"Star candy +{Fmt.Number(candy, 1)}"), "icon_candy");
+        else if (c.StarlightAdded > 0) Notify(L.T($"별빛 +{Fmt.Duration(c.StarlightAdded)}", $"Starlight +{Fmt.Duration(c.StarlightAdded)}"), "icon_starlight");
+    }
+
+    private void OnReturned(TickResult r) =>
+        Notify(L.T($"다녀오셨어요! {Fmt.Steps(r.DistanceGained)} 왔어요", $"Welcome back! We flew {Fmt.Steps(r.DistanceGained)}"),
+            r.Discoveries.Count > 0 ? r.Discoveries[^1].Sprite : null);
+
+    private void OnVoyageReady() => Notify(L.T("도감 완성! 새 항해를 떠날 수 있어요", "Atlas complete! A new voyage awaits"), "icon_voyage");
+
+    private void OnVoyageStarted(DestinationDef d, double candy) => Notify(L.T($"{d.Name}(으)로 출발!", $"Off to {d.Name}!"), d.Sprite);
+
+    // ── 진행 ──
 
     private int Scale => Math.Max(2, (int)Math.Floor(Bounds.Height / 86));
 
@@ -113,16 +183,25 @@ public sealed class SceneView : Control
         }
         _particles.RemoveAll(p => p.Age > 0.7);
 
-        // 발견이 일어나면 다가오던 천체를 "지나가는" 천체로 넘긴다
+        foreach (var f in _floaters)
+        {
+            f.Age += dt;
+            f.Y -= 14 * scale * dt;
+            f.X += f.Drift * scale * dt;
+        }
+        _floaters.RemoveAll(f => f.Age >= f.Life);
+
+        // 발견이 일어나면 다가오던 천체를 "지나가는" 천체로 넘긴다 (새 항해로 번호가 처음부터면 넘기지 않는다)
         if (s != null)
         {
-            if (_seenDiscoveries >= 0 && s.DiscoveryCount > _seenDiscoveries)
+            if (_seenVoyage == s.Voyage && _seenDiscoveries >= 0 && s.DiscoveryCount > _seenDiscoveries)
             {
-                _passingSprite = Discoveries.SpriteOf(s.DiscoveryCount - 1);
+                _passingSprite = Destinations.SpriteOf(Destinations.Current(s), s.DiscoveryCount - 1);
                 _passingX = double.IsNaN(_lastUpcomingX) ? probeX : _lastUpcomingX;
                 _passingY = ObjectY(s.DiscoveryCount - 1, scale);
             }
             _seenDiscoveries = s.DiscoveryCount;
+            _seenVoyage = s.Voyage;
         }
         if (_passingSprite != null)
         {
@@ -130,7 +209,9 @@ public sealed class SceneView : Control
             if (_passingX < -40 * scale) _passingSprite = null;
         }
 
-        WalkCrew(s, scale, dt);
+        _events.Update(t, dt, Bounds.Width, SpaceHeight(scale), scale);
+        _bubbles.Update(dt);
+        WalkCrew(s, scale, dt, t);
 
         InvalidateVisual();
     }
@@ -151,7 +232,7 @@ public sealed class SceneView : Control
     }
 
     /// <summary>햄찌마다 잠깐 쉬었다가 제자리 근처의 새 지점으로 걸어간다</summary>
-    private void WalkCrew(GameState? s, int scale, double dt)
+    private void WalkCrew(GameState? s, int scale, double dt, double t)
     {
         var (count, spacing, _, _) = LabSlots(s, scale);
         while (_walkers.Count < count)
@@ -187,6 +268,62 @@ public sealed class SceneView : Control
         }
     }
 
+    // ── 누르기: 햄찌 쓰다듬기 · 별똥별 잡기 · 고래 인사 ──
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || Host is not { } host) return;
+        var p = e.GetPosition(this);
+        int scale = Scale;
+        double t = _clock.Elapsed.TotalSeconds;
+
+        if (_events.HitStar(p, scale) is { } star)
+        {
+            _events.Remove(star);
+            double reward = host.CatchShootingStar(star.Small);
+            for (int i = 0; i < 4; i++)
+                _floaters.Add(new Floater { Sprite = "sparkle", X = star.X + (_rng.NextDouble() * 8 - 4) * scale, Y = star.Y, Drift = _rng.NextDouble() * 10 - 5, Life = 0.8 });
+            _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T($"별가루 +{Fmt.Compact(reward)}!", $"Stardust +{Fmt.Compact(reward)}!"), Icon = "icon_stardust", At = new Point(star.X, star.Y), Duration = 1.8 });
+            e.Handled = true;
+            return;
+        }
+        if (_events.HitWhale(p, scale))
+        {
+            _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T("뿌우~ 안녕!", "Fwoo~ hello!"), At = p, Duration = 2 });
+            _floaters.Add(new Floater { Sprite = "fx_note", X = p.X, Y = p.Y, Drift = 3 });
+            e.Handled = true;
+            return;
+        }
+        for (int i = 0; i < _hamsterRects.Count && i < _walkers.Count; i++)
+        {
+            if (!_hamsterRects[i].Inflate(2 * scale).Contains(p)) continue;
+            var w = _walkers[i];
+            w.Target = w.X;
+            w.Wait = Math.Max(w.Wait, 1.4);
+            w.PettedAt = t;
+            var r = _hamsterRects[i];
+            _floaters.Add(new Floater { Sprite = "fx_heart", X = r.X + r.Width / 2 - 3 * scale, Y = r.Y, Drift = _rng.NextDouble() * 6 - 3 });
+            if (_rng.Next(3) == 0) _floaters.Add(new Floater { Sprite = "fx_note", X = r.X + r.Width / 2 + 2 * scale, Y = r.Y + 2 * scale, Drift = 4, Life = 1.4 });
+            var line = PetLines[_rng.Next(PetLines.Length)];
+            _bubbles.Interrupt(new SceneBubbles.Bubble { Text = L.T(line.Ko, line.En), Hamster = i, Duration = 2.2 });
+            host.PetHamster();
+            e.Handled = true;
+            return;
+        }
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        var p = e.GetPosition(this);
+        int scale = Scale;
+        bool clickable = _events.HitStar(p, scale) != null || _events.HitWhale(p, scale) || _hamsterRects.Any(r => r.Inflate(2 * scale).Contains(p));
+        Cursor = clickable ? new Cursor(StandardCursorType.Hand) : null;
+    }
+
+    // ── 그리기 ──
+
     public override void Render(DrawingContext dc)
     {
         double w = Bounds.Width, h = Bounds.Height;
@@ -207,6 +344,7 @@ public sealed class SceneView : Control
             double x = Frac(d.X - _scroll * d.Parallax * scale / (w + dw)) * (w + dw) - dw;
             SpriteCache.Draw(dc, d.Sprite, SpriteCache.FrameAt(d.Sprite, t), Math.Round(x / scale) * scale, Math.Round(d.Y * spaceH / scale) * scale, scale);
         }
+        _events.DrawBehind(dc, t, scale);
 
         // 별 (먼 것부터)
         double[] factor = { 0.15, 0.4, 0.9 };
@@ -239,7 +377,7 @@ public sealed class SceneView : Control
 
         if (s != null)
         {
-            // 출발 직후: 연구소 소행성이 뒤로 멀어진다
+            // 출발 직후: 연구소 소행성이 뒤로 멀어진다 (새 항해마다 — 연구소가 새 목적지로 이사해 거기서 떠난다)
             var station = SpriteLibrary.Get("station");
             double stationX = probeX - station.Width * scale - 6 * scale - s.Distance * 0.6 * scale;
             if (stationX > -station.Width * scale)
@@ -249,6 +387,8 @@ public sealed class SceneView : Control
             if (_passingSprite != null && SpriteLibrary.TryGet(_passingSprite, out var passing))
                 SpriteCache.Draw(dc, _passingSprite, SpriteCache.FrameAt(_passingSprite, t), Math.Round(_passingX), _passingY - passing.Height * scale / 2.0, scale);
         }
+
+        _events.DrawFront(dc, t, scale);
 
         foreach (var p in _particles)
         {
@@ -262,18 +402,34 @@ public sealed class SceneView : Control
         SpriteCache.Draw(dc, ship, SpriteCache.FrameAt(ship, t), probeX, Math.Round(probeY / scale) * scale, scale);
 
         DrawLab(dc, s, theme, scale, w, h, spaceH, t);
+
+        foreach (var f in _floaters)
+        {
+            if (!SpriteLibrary.TryGet(f.Sprite, out _)) continue;
+            double alpha = Math.Clamp(1 - (f.Age - f.Life * 0.6) / (f.Life * 0.4), 0, 1);
+            SpriteCache.Draw(dc, f.Sprite, SpriteCache.FrameAt(f.Sprite, f.Age), Math.Round(f.X / scale) * scale, Math.Round(f.Y / scale) * scale, scale, alpha);
+        }
+
+        if (_bubbles.Current is { } bubble)
+        {
+            int index = bubble.Hamster is int hi ? (hi < 0 ? _captainIndex : hi) : -1;
+            var anchor = index >= 0 && index < _hamsterRects.Count
+                ? new Point(_hamsterRects[index].X + _hamsterRects[index].Width / 2, _hamsterRects[index].Y - scale)
+                : bubble.At;
+            _bubbles.Draw(dc, anchor, w, scale);
+        }
     }
 
     /// <summary>다음 발견 천체: 이정표 구간의 55% 를 지나면 오른쪽에서 들어와 탐사선 쪽으로 다가온다</summary>
     private void DrawUpcoming(DrawingContext dc, GameState s, int scale, double meetX, double w, double t)
     {
         int k = s.DiscoveryCount;
-        double prev = k == 0 ? 0 : Balance.DiscoveryDistance(k - 1);
-        double next = Balance.DiscoveryDistance(k);
+        double prev = GameRules.PrevDiscoveryDistance(s);
+        double next = GameRules.NextDiscoveryDistance(s);
         double p = Math.Clamp((s.Distance - prev) / Math.Max(1, next - prev), 0, 1);
         _lastUpcomingX = double.NaN;
         if (p < 0.55) return;
-        string id = Discoveries.SpriteOf(k);
+        string id = Destinations.SpriteOf(Destinations.Current(s), k);
         if (!SpriteLibrary.TryGet(id, out var sprite)) return;
         double u = (p - 0.55) / 0.45;
         double eased = 1 - Math.Pow(1 - u, 2);
@@ -285,7 +441,7 @@ public sealed class SceneView : Control
         SpriteCache.Draw(dc, id, SpriteCache.FrameAt(id, t), x, Math.Round(y / scale) * scale, scale, Math.Min(1, u * 3));
     }
 
-    /// <summary>연구소 단면: 벽(창 + 등) · 바닥 · 햄찌 크루 (가운데가 선장 — 복장·털색 스킨)</summary>
+    /// <summary>연구소 단면: 벽(창 + 등) · 바닥 · 소품 · 햄찌 크루 (가운데가 선장 — 복장·털색 스킨)</summary>
     private void DrawLab(DrawingContext dc, GameState? s, SceneTheme theme, int scale, double w, double h, double top, double t)
     {
         var line = SkinArt.Solid(theme.Line);
@@ -323,7 +479,11 @@ public sealed class SceneView : Control
         for (double px = 3 * scale; px < w; px += 13 * scale)
             dc.FillRectangle(plank, new Rect(px, floorTop + 2 * scale + ((int)(px / scale) % 2) * scale, scale, 2 * scale));
 
+        if (s != null) LabDecorRenderer.Draw(dc, s, theme, scale, w, top, floorTop, t);
+
         var (count, spacing, startX, captain) = LabSlots(s, scale);
+        _captainIndex = captain;
+        _hamsterRects.Clear();
         string captainFur = s != null ? SkinArt.CaptainFur(s) : "hamster_0";
         string? outfit = s != null ? SkinArt.Outfit(s) : null;
         for (int i = 0; i < count && i < _walkers.Count; i++)
@@ -334,7 +494,14 @@ public sealed class SceneView : Control
 
             int frame;
             double lift;
-            if (walker.Walking)
+            double sincePet = t - walker.PettedAt;
+            if (sincePet < 0.6)
+            {
+                // 쓰다듬으면 높이 폴짝 + 눈 꼭
+                frame = SkinArt.FrameBlink;
+                lift = Math.Round(Math.Sin(sincePet / 0.6 * Math.PI) * 6);
+            }
+            else if (walker.Walking)
             {
                 // 걸음마다 한 칸 통 — 발을 번갈아 내딛는다
                 bool stepB = (int)(walker.StepClock / StepSeconds) % 2 == 1;
@@ -351,6 +518,7 @@ public sealed class SceneView : Control
             }
             double x = Math.Round((startX + i * spacing) / scale + walker.X) * scale;
             double y = floorTop - 16 * scale + scale - lift * scale;
+            _hamsterRects.Add(new Rect(x, y, 16 * scale, 16 * scale));
             SkinArt.DrawHamster(dc, fur, isCaptain ? outfit : null, frame, x, y, scale, t, walker.Left);
         }
     }

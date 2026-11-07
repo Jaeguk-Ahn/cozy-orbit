@@ -32,9 +32,18 @@ public sealed class SaveStore
             state.Candy.Sessions ??= new();
             state.OwnedSkins ??= new();
             state.Equipped ??= new();
+            // 꾸미기·목표·기록 이전 세이브
+            state.OwnedDecor ??= new();
+            state.PlacedDecor ??= new();
+            state.Daily ??= new();
+            state.Daily.Goals ??= new();
+            state.Achievements ??= new();
+            state.History ??= new();
             state.Stats ??= new();
             state.Settings ??= new();
             state.Settings.DisabledProviders ??= new();
+            if (state.Voyage < 0) state.Voyage = 0;
+            if (state.Version < 2) MigrateToDestinations(state, now);
             state.Settings.Language = L.Normalize(state.Settings.Language);
             if (!double.IsFinite(state.Distance) || state.Distance < 0) state.Distance = 0;
             if (!double.IsFinite(state.Stardust) || state.Stardust < 0) state.Stardust = 0;
@@ -49,6 +58,23 @@ public sealed class SaveStore
             try { File.Move(Path, aside, overwrite: true); } catch (IOException) { }
             return GameState.New(now);
         }
+    }
+
+    /// <summary>
+    /// v1 → v2: 우리 은하 도감에 실제 천체 구역이 끼어들어 순서가 바뀌었다. 발견 수는 그대로 두고,
+    /// 도감은 새 순서의 앞에서부터 발견 수만큼을 만난 것으로 다시 적는다 (원래 시각이 있으면 그 시각).
+    /// 누계 기록이 없던 값은 지금 상태에서 채운다.
+    /// </summary>
+    private static void MigrateToDestinations(GameState state, DateTimeOffset now)
+    {
+        var old = state.FoundAt;
+        var fallback = old.Count > 0 ? old.Values.Min() : now;
+        state.FoundAt = Destinations.MilkyWay.Catalog.Take(state.DiscoveryCount)
+            .ToDictionary(d => d.Id, d => old.TryGetValue(d.Id, out var t) ? t : fallback);
+        state.Stats.Discoveries = Math.Max(state.Stats.Discoveries, state.DiscoveryCount);
+        state.Stats.DistanceTotal = Math.Max(state.Stats.DistanceTotal, state.Distance);
+        state.Stats.ResearchBought = Math.Max(state.Stats.ResearchBought, state.Upgrades.Values.Sum());
+        state.Version = 2;
     }
 
     public void Save(GameState state) => JsonFile.WriteAtomic(Path, state);

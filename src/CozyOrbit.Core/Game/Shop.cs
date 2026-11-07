@@ -22,6 +22,7 @@ public static class Shop
         var d = Skins.Get(skinId);
         if (!CanBuy(s, d)) return false;
         s.Candy.Balance -= d.Price;
+        s.Stats.CandySpent += d.Price;
         s.OwnedSkins.Add(skinId);
         s.Equipped[d.Slot] = skinId;
         return true;

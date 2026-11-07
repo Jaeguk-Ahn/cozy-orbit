@@ -47,12 +47,20 @@ public sealed class GameHost : IDisposable
     public event Action? Scanned;
     /// <summary>오래 비운 뒤 돌아왔을 때의 진행 요약</summary>
     public event Action<TickResult>? Returned;
+    /// <summary>이번 목적지 도감을 다 채워 새 항해를 떠날 수 있게 됐을 때 (한 번)</summary>
+    public event Action? VoyageReady;
+    /// <summary>새 항해를 떠났을 때 (새 목적지, 받은 별사탕)</summary>
+    public event Action<DestinationDef, double>? VoyageStarted;
+
+    private bool _voyageReady;
 
     public GameHost(SaveStore? store = null, UsageScanner? scanner = null)
     {
         _store = store ?? new SaveStore();
         _scanner = scanner ?? new UsageScanner();
         State = _store.Load(DateTimeOffset.Now);
+        // 기록 그래프가 이 기능 이전 세이브에서도 비지 않게 별빛 장부로 채운다
+        UsageHistory.SeedFromLedger(State);
         L.SetLanguage(State.Settings.Language);
 
         _tick = new DispatcherTimer(TickInterval, DispatcherPriority.Background, (_, _) => Tick());
@@ -88,6 +96,9 @@ public sealed class GameHost : IDisposable
         {
             foreach (var d in r.Discoveries) Discovered?.Invoke(d);
         }
+        bool ready = Voyages.CanDepart(State);
+        if (ready && !_voyageReady) VoyageReady?.Invoke();
+        _voyageReady = ready;
         Ticked?.Invoke();
     }
 
@@ -106,6 +117,7 @@ public sealed class GameHost : IDisposable
             GameRules.CatchUp(State, DateTimeOffset.Now);
             var credit = StarlightLedger.Apply(State, scans, DateTimeOffset.Now);
             double candy = CandyLedger.Apply(State.Candy, scans, DateTimeOffset.Now);
+            UsageHistory.Record(State, scans, candy, DateTimeOffset.Now);
             Today = credit.Today;
             LastScanFinished = DateTimeOffset.Now;
             if (credit.TotalStarlight > 0 || candy > 0)
@@ -138,6 +150,33 @@ public sealed class GameHost : IDisposable
         Ticked?.Invoke();
         return true;
     }
+
+    /// <summary>새 항해 떠나기 (도감을 다 채웠을 때만)</summary>
+    public bool Depart()
+    {
+        GameRules.CatchUp(State, DateTimeOffset.Now);
+        double candy = Voyages.DepartureCandy(State);
+        if (!Voyages.Depart(State)) return false;
+        var dest = Destinations.Current(State);
+        AppLog.Info($"새 항해 {State.Voyage}: {dest.Id}, 별사탕 +{candy}");
+        _voyageReady = false;
+        Save();
+        VoyageStarted?.Invoke(dest, candy);
+        Ticked?.Invoke();
+        return true;
+    }
+
+    /// <summary>별똥별을 잡았다 (small = 유성우의 작은 별똥). 받은 별가루를 돌려준다.</summary>
+    public double CatchShootingStar(bool small)
+    {
+        GameRules.CatchUp(State, DateTimeOffset.Now);
+        double reward = GameRules.CatchShootingStar(State, small);
+        Ticked?.Invoke();
+        return reward;
+    }
+
+    /// <summary>햄찌를 쓰다듬었다 (저장은 주기 저장에 맡긴다)</summary>
+    public void PetHamster() => GameRules.Pet(State);
 
     public bool BuySkin(string skinId)
     {

@@ -32,6 +32,8 @@ public partial class FloatingWindow : Window
         Icon = App.AppIcon;
         RenderOptions.SetTextRenderingMode(this, TextRenderingMode.Alias);
         Scene.Host = host;
+        // 플로팅에는 토스트가 없으니 발견·별사탕 알림을 선장 말풍선으로
+        Scene.ShowEventBubbles = true;
         Hud.Background = new SolidColorBrush(Color.FromUInt32((Palette.SpaceDeep & 0x00FFFFFF) | 0xB0000000));
 
         var s = host.State.Settings;
