@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CozyOrbit.App/CozyOrbit.App.csproj" />
+    <Project Path="src/CozyOrbit.Core/CozyOrbit.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CozyOrbit.Core.Tests/CozyOrbit.Core.Tests.csproj" />
+  </Folder>
+</Solution>

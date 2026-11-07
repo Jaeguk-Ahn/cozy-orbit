@@ -1,0 +1,9 @@
+<Project>
+  <!-- 모든 프로젝트(Core·앱·테스트) 공통. .NET 버전은 여기 한 곳과 global.json(SDK)에서 바꾼다. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>

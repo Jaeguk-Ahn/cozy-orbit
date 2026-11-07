@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Cozy Orbit — Windows·macOS 공용 앱 (Avalonia) -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>CozyOrbit.App</RootNamespace>
+    <AssemblyName>CozyOrbit</AssemblyName>
+    <Version>0.1.0</Version>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- 창은 GameHost 를 받아 코드에서만 만든다 (런타임 XAML 로더용 기본 생성자 없음) -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CozyOrbit.Core\CozyOrbit.Core.csproj" />
+  </ItemGroup>
+</Project>

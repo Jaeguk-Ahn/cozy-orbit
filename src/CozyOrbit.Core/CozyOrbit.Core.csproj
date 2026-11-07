@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>CozyOrbit.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 일부 AI 도구(OpenCode·Hermes·Copilot 등)는 사용량을 SQLite 에 남긴다 -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CozyOrbit.Core.Tests" />
+  </ItemGroup>
+</Project>
